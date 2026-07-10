@@ -1,6 +1,6 @@
 import qutip as qt
 import numpy as np
-from RC import RC_TimeSeries
+from classes.RC import RC_TimeSeries
 import scipy
 from dataclasses import dataclass
 import os

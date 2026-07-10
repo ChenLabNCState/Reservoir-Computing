@@ -2,7 +2,7 @@ import numpy as np
 import qutip as qt
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
-from RC import RC,RC_TimeSeries,RC_Classification
+from classes.RC import RC,RC_TimeSeries,RC_Classification
 
 @dataclass(kw_only=True)
 class QRC:
