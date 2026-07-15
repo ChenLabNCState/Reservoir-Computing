@@ -5,13 +5,14 @@ from abc import ABC, abstractmethod
 import matplotlib.pyplot as plt
 import os
 import json
+import random
 
 
 @dataclass(kw_only=True)
 class RC(ABC):
     #Mandatory Parameters
     training_data: np.ndarray
-
+    washout: int 
 
 
     #Optional parameters with defaults
@@ -20,27 +21,31 @@ class RC(ABC):
 
     # Data to be assigned later or given in subclasses
     training_targets: np.ndarray = field(default=None)
-
+    dynamics_data:list = field(default_factory=list,init=False)
     is_trained:bool = field(default=False, init=False)
     rest_time_steps: int = field(default=None, init=False)
     predictions: np.ndarray = field(default=None, init=False)
     test_targets: np.ndarray = field(default=None, init=False)
     W: np.ndarray = field(default=None, init=False)
     
+    def __post_init__(self):
 
-    def train(self) -> np.ndarray:
+        self.training_targets = self.training_data[self.washout:]
+
+
+    def train(self,save_dynamics:bool = False) -> np.ndarray:
         """
         Overarching method that will train the model with the data given and update the weight matrix
         
         """
-        
+
         if self.training_targets is None:
             raise ValueError(
                 f"Training targets must be assigned and are currently {None}"
             )
 
 
-        training_results = self.simulate_data(self.training_data)
+        training_results = self.simulate_data(self.training_data,save_dynamics=save_dynamics,is_train=True)
 
         inverse_train = np.linalg.pinv(training_results)
 
@@ -64,18 +69,18 @@ class RC(ABC):
                 f"Weight matrix has yet to be calculated, First run train method to find weight matrix"
             )
         
-        self.test_targets = test_targets
+        self.test_targets = test_targets[self.washout:]
         
-        testing_results = self.simulate_data(test_data)
+        testing_results = self.simulate_data(test_data,is_train=False,save_dynamics=False)
 
         self.predictions = self.W @ testing_results
 
-        error = self._calc_nrmse(test_targets)
+        error = self._calc_nrmse(self.test_targets)
 
         return (self.predictions,error)
     
     @abstractmethod
-    def simulate_data(self,data) -> np.ndarray:
+    def simulate_data(self,data,is_train:bool,save_dynamics:bool=False) -> np.ndarray:
         """
         Abstract method that will contain the core logic for simulating the data into the reservoir.
         
@@ -205,17 +210,15 @@ class RC_Classification(RC):
 @dataclass(kw_only=True)
 class RC_TimeSeries(RC):
     
-    wash_out: int = 0
     delay:int = 1
 
-    training_targets: np.ndarray = field(default=None,init=True)
     training_target_length: int = field(default=None,init=False)
 
     def __post_init__(self):
 
         
-        # self.training_targets = self.training_data[self.wash_out+self.window_size+self.delay:]
-        self.training_target_length = len(self.training_targets)
+        # self.training_targets = self.training_data[self.wash_out:]
+        # self.training_target_length = len(self.training_targets)
         # self.training_data = self.training_data[:len(self.training_data)-self.window_size-self.delay]
         # CRITICAL: Pass the execution to the next class in the MRO chain!
         if hasattr(super(), '__post_init__'):

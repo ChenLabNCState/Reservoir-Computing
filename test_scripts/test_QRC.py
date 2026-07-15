@@ -1,9 +1,13 @@
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import qutip as qt
-import QRC
+from classes.QRC import QRC
 import numpy as np
 import matplotlib.pyplot as plt
 import random
 import os
+from classes.RC import generate_mixed_amplitude_sequence
 
 def custom_pauli(N, state_a_index, state_b_index):
     sx_mat = np.zeros((N, N), dtype=complex)
@@ -28,43 +32,6 @@ def custom_dissipator(N, destroy_index):
         destroy = qt.Qobj(destroy)
     return destroy
 
-def generate_mixed_amplitude_sequence(
-    total_points=150,
-    segment_length_min=10,
-    segment_length_max=10,
-    sine_amplitude=1.0,
-    square_amplitude=1.0,
-    frequency=0.2,
-    noise_level=0.0
-):
-    sequence = []
-    labels = []
-    current_points = 0
-
-    while current_points < total_points:
-        length = random.randint(segment_length_min, segment_length_max)
-        if current_points + length > total_points:
-            length = total_points - current_points
-
-        pulse_type = random.choice(['sine', 'square'])
-        t = np.arange(length)
-
-        if pulse_type == 'sine':
-            pulse = sine_amplitude * np.sin(2 * np.pi * frequency * t)
-            label = 0
-        else:
-            pulse = square_amplitude * np.ones(length)
-            label = 1
-
-        if noise_level > 0:
-            pulse += np.random.normal(0, noise_level, length)
-
-        sequence.extend(pulse)
-        labels.extend([label] * length)
-        current_points += length
-
-    return np.array(sequence), np.array(labels)
-
 #Run a test with 3 level system and compare to Fock state
 N_dim = 3
 pulse_duration = 5
@@ -72,9 +39,9 @@ pulse_time_steps = 50
 window_size = 5
 #3level system
 
-training_data,training_targets = generate_mixed_amplitude_sequence(noise_level=0.005)
+training_data,training_targets = QRC.generate_mixed_amplitude_sequence(noise_level=0.0)
 
-testing_data,testing_targets = generate_mixed_amplitude_sequence(noise_level=0.005)
+testing_data,testing_targets = QRC.generate_mixed_amplitude_sequence(noise_level=0)
 
 training_targets = training_targets[window_size-1:]
 testing_targets = testing_targets[window_size-1:]
