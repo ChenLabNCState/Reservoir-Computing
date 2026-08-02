@@ -18,7 +18,7 @@ class JJ(RC_TimeSeries):
     theta: float 
     dt:float = field(init=False)
     time_steps: int = 50
-    alpha:float 
+    alpha:float = 1.5
     initial_phi: float = 0.1
     initial_v: float = 1
     k_inj:float = 0.25
