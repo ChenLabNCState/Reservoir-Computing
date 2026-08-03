@@ -13,30 +13,175 @@ from pathlib import Path
 
 
 training_data_size = 1000
-testing_data_size = 300
-alpha = 1.5
-dt = 1
-delay = 1
+testing_data_size =250
 training_data = generate_mackey_glass(training_data_size,dt=3,tau=50)
 testing_data = generate_mackey_glass(testing_data_size,dt=3,tau=50)
-washout = 100
+plot_cycles = 200
+washout = 50
+delay = 1
+start_idx = 100
 
+JJ_RC_OP1 = JJ(washout=washout,
+           virtual_nodes=20,
+           k_inj=.25,
+           I_dc=0.5,
+           window_size=0,
+           delay=delay,
+           training_data=training_data[:-delay],
+           training_targets=training_data[delay:],
+           theta = 1,
+           )
 
-JJ_RC = JJ(window_size=0,delay=delay,training_data=training_data[washout:-delay],training_targets=training_data[washout+delay:],alpha = 1,dt = 0.01)
+JJ_RC_OP2 = JJ(washout=washout,
+           virtual_nodes=70,
+           k_inj=.15,
+           I_dc=1.5,
+           window_size=0,
+           delay=delay,
+           training_data=training_data[:-delay],
+           training_targets=training_data[delay:],
+           alpha = 1,
+           theta = 1,
+           )
 
-JJ_RC.train()
+JJ_RC_OP3 =JJ(washout=washout,
+           virtual_nodes=20,
+           k_inj=.1,
+           I_dc=.95,
+           window_size=0,
+           delay=delay,
+           training_data=training_data[:-delay],
+           training_targets=training_data[delay:],
+           alpha = 1,
+           theta = 1,
+           )
 
-print(f"Weight matrix is: \n{JJ_RC.W}")
+reservoir_list = [JJ_RC_OP1,JJ_RC_OP2,JJ_RC_OP3]
+# reservoir_list=[JJ_RC_OP2]
 
-result = JJ_RC.test(test_data=testing_data[:-delay],test_targets=testing_data[delay:])
-
-print(f"Error of :{result[1]}")
-
-JJ_RC.plot(
+for (i,reservoir) in enumerate(reservoir_list):
+    is_OP2 = False
+    if i == 1:
+        is_OP2 = True
+    
+    reservoir.train(save_dynamics = True)
+    
+    print(f"Weight matrix for OP{i+1} is: \n{reservoir.W}")
+    
+    result = reservoir.test(test_data=testing_data[:-delay],test_targets=testing_data[delay:])
+    
+    print(f" OP{i+1} has Error of :{result[1]}")
+    
+    reservoir.plot(
     save_dir=os.path.join(Path.cwd().parent,
-        "test_plots\\JJ_test"
+        f"test_plots\\JJ_OP{i+1}"
     ),
     save_fig=True
-)
+    )
+    reservoir.plot_dynamics(start=start_idx,is_OP2=is_OP2)
+    reservoir.plot_dynamics_2(start = start_idx,cycles=200,is_OP2=is_OP2)
+    reservoir.plot_dynamics_3(start = start_idx, cycles=5,is_OP2=is_OP2)
+    # reservoir.plot_combined_dynamics2(start_step=100,phase_cycles=200,phase_cycles2=5)
+
+
+def run_parameter_sweep(base_params, sweeps: List[SweepSpec], base_dir):
+
+    mg = generate_mackey_glass(total_length, dt, base_params.tau)
+
+    if len(sweeps) < 2:
+        raise ValueError("Need at least two sweeps (curve + x-axis).")
+
+    x_sweep = sweeps[-1]
+    curve_sweep = sweeps[-2]
+    folder_sweeps = sweeps[:-2]
+
+    # iterate through every combination of outer parameters
+    outer_value_lists = [s.values for s in folder_sweeps]
+
+    sweep_num = 0
+    curve_num = 0
+    sim_num = 0
+
+    for outer_vals in product(*outer_value_lists) if outer_value_lists else [()]:
+
+        params = replace(base_params)
+
+        save_dir = base_dir
+
+        # apply outer sweep parameters
+        for sweep_spec, val in zip(folder_sweeps, outer_vals):
+
+            sweep_num +=1
+            print(f"\n\n ---------- Starting sweep {sweep_num} for {sweep_spec.name}:{val} ----------\n\n")
+
+            setattr(params, sweep_spec.name, val)
+
+            save_dir = os.path.join(
+                save_dir,
+                f"{sweep_spec.name}_{val}"
+            )
+
+        os.makedirs(save_dir, exist_ok=True)
+
+        # save parameters JSON
+        with open(os.path.join(save_dir, "parameters.json"), "w") as f:
+            json.dump(asdict(params), f, indent=4, default=json_converter)
+
+        error_matrix = []
+        best_predictions = []
+        best_shifts = []
+
+        for curve_val in curve_sweep.values:
+
+            curve_num +=1
+            print(f"\n--- Starting curve {curve_num} for {curve_sweep.name}:{curve_val} ---")
+
+            errors = []
+            predictions = []
+            shift = []
+
+
+            for sweep_val in x_sweep.values:
+
+                sim_num +=1
+                print(f"Running sim {sim_num} for {x_sweep.name}:{sweep_val}")
+
+                current_params = replace(params)
+
+                setattr(current_params, curve_sweep.name, curve_val)
+                setattr(current_params, x_sweep.name, sweep_val)
+
+                y_t, y_p, err = run_simulation(current_params,mg)
+
+                errors.append(err)
+                predictions.append((y_t, y_p))
+
+            errors = np.array(errors)
+
+            best_idx = np.argmin(errors)
+
+            error_matrix.append(errors)
+            best_predictions.append(predictions[best_idx][1])
+
+
+        error_matrix = np.array(error_matrix)
+
+        plot_and_save(
+            mg,
+            x_sweep,
+            curve_sweep,
+            x_sweep.values,
+            curve_sweep.values,
+            error_matrix,
+            best_predictions,
+            save_dir
+        )
+
+
+
+
+
+
+
 
 

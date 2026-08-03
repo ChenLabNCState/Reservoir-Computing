@@ -134,7 +134,7 @@ class QRC_TimeSeries(RC_TimeSeries,QRC):
             super().__post_init__()
 
     
-    def simulate_data(self,time_series):
+    def simulate_data(self,time_series,is_train:bool):
         all_probabilities = []
 
         for window_index in range(self.wash_out,len(time_series)-(self.window_size + self.delay)):
@@ -156,12 +156,12 @@ class QRC_Classification(RC_Classification,QRC):
             super().__post_init__()
 
     
-    def simulate_data(self,time_series):
+    def simulate_data(self,time_series,is_train:bool,save_dynamics:bool):
         all_probabilities = []
 
         for window_index in range(len(time_series) - self.window_size + 1):
             window = time_series[window_index:window_index + self.window_size]
-            window_probabilites = self._simulate_window(window)
+            window_probabilites = self._simulate_window(window,save_dynamics=save_dynamics)
             all_probabilities.append(window_probabilites)
 
         results = np.array(all_probabilities).T
@@ -186,7 +186,7 @@ class QRC_Classification_upgraded(QRC_Classification):
                 f"Window size is {self.window_size} and your dimension is {self.pulse_duration.shape[1]}"
             )
 
-    def _simulate_window(self, window_data):
+    def _simulate_window(self, window_data,save_dynamics:bool):
         features = []
         for j,pulse_duration_list in enumerate(self.pulse_durations):
             for i,pulse_amp in enumerate(window_data):
@@ -199,7 +199,10 @@ class QRC_Classification_upgraded(QRC_Classification):
                 will still have precession of other qubits
                 
                 """
+
                 result = qt.mesolve(self.H_interaction*pulse_amp, self.initial_state, tlist, self.collapse_ops)
+                if save_dynamics:
+                    self.dynamics_data.append([[qt.expect(op, state=state) for op in self.measurement_ops] for state in result.states])
                 state = result.states[-1]
         
 
