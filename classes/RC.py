@@ -6,7 +6,21 @@ import matplotlib.pyplot as plt
 import os
 import json
 import random
+from enum import Enum
+from scipy.special import eval_legendre
 
+class IPC_type(Enum):
+    UNIFORM = 1
+    NORMAL = 2
+
+def _normalized_legendre(n):
+    """
+    Factory function returning a normalized Legendre polynomial of degree n.
+    tilde_P_n(x) = sqrt(2n + 1) * P_n(x)
+    """
+    scale = np.sqrt(2 * n + 1)
+    # The default argument 'n=n' binds the loop value immediately
+    return lambda x, n=n, s=scale: s * eval_legendre(n, x)
 
 @dataclass(kw_only=True)
 class RC(ABC):
@@ -20,13 +34,13 @@ class RC(ABC):
    
 
     # Data to be assigned later or given in subclasses
-    training_targets: np.ndarray = field(default=None)
-    dynamics_data:list = field(default_factory=list,init=False)
-    is_trained:bool = field(default=False, init=False)
-    rest_time_steps: int = field(default=None, init=False)
-    predictions: np.ndarray = field(default=None, init=False)
-    test_targets: np.ndarray = field(default=None, init=False)
-    W: np.ndarray = field(default=None, init=False)
+    training_targets: np.ndarray | None = field(default=None)
+    dynamics_data: list = field(default_factory=list, init=False)
+    is_trained: bool = field(default=False, init=False)
+    rest_time_steps: int | None = field(default=None, init=False)
+    predictions: np.ndarray | None = field(default=None, init=False)
+    test_targets: np.ndarray | None = field(default=None, init=False)
+    W: np.ndarray | None = field(default=None, init=False)
     
     def __post_init__(self):
 
@@ -108,7 +122,11 @@ class RC(ABC):
         
         plt.plot(x_values, self.predictions, "-o",markersize=2, color="orange", label="Predictions")
         # FIX 3: Updated self.test_targets to self.testing_targets to match your dataclass
-        plt.plot(x_values, self.test_targets, "-o",color="black",markersize =2, lw=2, label="Targets")
+        
+        if self.test_targets is not None:
+            plt.plot(x_values, self.test_targets, "-o",color="black",markersize =2, lw=2, label="Targets")
+        else:
+            raise ValueError("test_targets is None and cannot be plotted")
         
         plt.legend()
         plt.title("Predictions vs Targets")
@@ -164,6 +182,50 @@ class RC(ABC):
             return np.nan 
     
         return rmse / target_std
+
+    def evaluate_IPC(self,test_funcs,data_size,type = IPC_type.UNIFORM,d_max:int = 5):
+        """
+        This method computes the information proccessing capacity of the reservoir. This number can slightly over different runs
+        as it is based on the reservoirs response to inputs sampled from various distributions (default to UNIFORM).
+                
+        
+             
+                
+        """
+
+
+        #Create uniform input sequence of length T claled u(t)
+
+        
+        rng = np.random.default_rng()
+
+        samples = rng.uniform(low=-1, high=1, size=data_size)
+
+        for d in range(0,d_max):
+            
+
+
+        
+
+        #Construct all possible permutations of products of legendre/hermite polynomials up to degree of d_max
+        #   - the polynomials are functions of the uniform input u(t-tau)
+        #   - EX: P1(u(t-tau1))P2(u(t-tau3)) is one of many degree 3 polynomials.
+        #   - We can represent these functions by a tuple representing the legendre polymials and delays ie L:(1,2), tau:(1,3)
+        #   - Example of unallowed state: P1(u(t-tau1))P1(u(t-tau1)) as this is not orthogonal to P2(u(t-tau1)) 
+
+
+        #For all these possible polynomials find all possible allowed combinations of delays. 
+
+        #Evaluate all these functions 
+
+
+        if type == IPC_type.NORMAL:
+            pass
+        if type == IPC_type.UNIFORM:
+
+
+            return
+
     
 def json_converter(o):
     if isinstance(o, np.integer):
@@ -212,7 +274,7 @@ class RC_TimeSeries(RC):
     
     delay:int = 1
 
-    training_target_length: int = field(default=None,init=False)
+    training_target_length: int | None = field(default=None,init=False)
 
     def __post_init__(self):
 
