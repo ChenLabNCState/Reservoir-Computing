@@ -1,24 +1,26 @@
-import numpy as np
-import scipy.integrate as integrate
-from scipy.special import eval_legendre
-import matplotlib.pyplot as plt
+import itertools
 
-# Define the degrees of the two Legendre polynomials
-m = 15
-n = 15
+def integer_compositions(n, k):
+    """Generates all compositions of n into k positive integers (i >= 1)."""
+    if k == 1:
+        yield (n,)
+        return
+    for cuts in itertools.combinations(range(1, n), k - 1):
+        yield tuple(b - a for a, b in zip((0,) + cuts, cuts + (n,)))
 
-
-# # Integrate the product from -1 to 1
-# result, error = integrate.quad(lambda x: P_m(x) * P_n(x), -1, 1)
-
-def ortho_legendre_11(n, x):
-    """
-    Evaluates the n-th degree orthonormal Legendre polynomial on [-1, 1].
+def get_tuple_combinations(I_total, J_max, min_j=1):
+    results = []
+    available_j = range(min_j, J_max)  # j < J_max
     
-    Parameters:
-        n (int): Degree of the polynomial
-        x (float or np.ndarray): Input values in the range [-1, 1]
-    """
-    # Standard Legendre on [-1, 1] multiplied by sqrt(2n + 1)
-    return np.sqrt(2 * n + 1) * eval_legendre(n, x)
-print(ortho_legendre_11(2,0.5))
+    # Combination length k can range from 1 up to min(I_total, len(available_j))
+    for k in range(1, min(I_total, len(available_j)) + 1):
+        for j_combo in itertools.combinations(available_j, k):
+            for i_comp in integer_compositions(I_total, k):
+                results.append(list(zip(i_comp, j_combo)))
+                
+    return results
+
+# Example Usage
+combinations = get_tuple_combinations(I_total=4, J_max=5)
+for c in combinations:
+    print(c)

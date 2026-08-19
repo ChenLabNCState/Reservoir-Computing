@@ -8,7 +8,7 @@ import json
 import random
 from enum import Enum
 from scipy.special import eval_legendre
-
+import itertools
 class IPC_type(Enum):
     UNIFORM = 1
     NORMAL = 2
@@ -58,8 +58,8 @@ class RC(ABC):
                 f"Training targets must be assigned and are currently {None}"
             )
 
-
-        training_results = self.simulate_data(self.training_data,save_dynamics=save_dynamics,is_train=True)
+        #Exclude washout period in results
+        training_results = self.simulate_data(self.training_data,save_dynamics=save_dynamics,is_train=True)[:,self.washout:]
 
         inverse_train = np.linalg.pinv(training_results)
 
@@ -85,7 +85,7 @@ class RC(ABC):
         
         self.test_targets = test_targets[self.washout:]
         
-        testing_results = self.simulate_data(test_data,is_train=False,save_dynamics=False)
+        testing_results = self.simulate_data(test_data,is_train=False,save_dynamics=False)[:,self.washout:]
 
         self.predictions = self.W @ testing_results
 
@@ -183,7 +183,7 @@ class RC(ABC):
     
         return rmse / target_std
 
-    def evaluate_IPC(self,test_funcs,data_size,type = IPC_type.UNIFORM,d_max:int = 5):
+    def evaluate_IPC_me(self,tests_funcs,data_size,type = IPC_type.UNIFORM,d_max:int = 5,max_delay:int = 20):
         """
         This method computes the information proccessing capacity of the reservoir. This number can slightly over different runs
         as it is based on the reservoirs response to inputs sampled from various distributions (default to UNIFORM).
@@ -201,8 +201,37 @@ class RC(ABC):
 
         samples = rng.uniform(low=-1, high=1, size=data_size)
 
-        for d in range(0,d_max):
+        #Helper functions to generate all possible legendre polynomial and delay
+        #combinations as lists of tuples for a given order.
+
+        def integer_compositions(n, k):
+            """Generates all compositions of n into k positive integers (i >= 1)."""
+            if k == 1:
+                yield (n,)
+                return
+            for cuts in itertools.combinations(range(1, n), k - 1):
+                yield tuple(b - a for a, b in zip((0,) + cuts, cuts + (n,)))
+
+        def get_tuple_combinations(degree, maximum_delay, min_j=1):
+            results = []
+            available_j = range(min_j, maximum_delay)  # j < delay_max
             
+            # Combination length k can range from 1 up to min(degree, len(available_j))
+            for k in range(1, min(degree, len(available_j)) + 1):
+                for j_combo in itertools.combinations(available_j, k):
+                    for i_comp in integer_compositions(degree, k):
+                        results.append(list(zip(i_comp, j_combo)))
+                        
+            return results
+
+        tuple_dict = {}
+        for d in range(d_max):
+
+            tuple_dict[d] = get_tuple_combinations(d,maximum_delay=max_delay)
+            
+
+
+
 
 
         
@@ -225,7 +254,133 @@ class RC(ABC):
 
 
             return
+    def evaluate_IPC(self, data_size: int = 1000, d_max: int = 3, tau_max: int = 20, threshold: float = 1e-3, type: IPC_type = IPC_type.UNIFORM) -> tuple[float, dict]:
+        """
+        Calculates the Information Processing Capacity (IPC) of the reservoir.
+        Assumes simulate_data() already strips the washout period internally.
+        """
+        if type != IPC_type.UNIFORM:
+            raise NotImplementedError("Currently, IPC is only implemented for UNIFORM distribution.")
 
+        # 1. Generate uniform random input sequence u(t) ~ U[-1, 1] of full length data_size
+        rng = np.random.default_rng()
+        u = rng.uniform(low=-1.0, high=1.0, size=data_size)
+
+        # 2. Drive reservoir -> states ALREADY have washout stripped by simulate_data
+        raw_states = self.simulate_data(u, is_train=False, save_dynamics=False)
+        states = np.asarray(raw_states)
+
+        # Ensure states is strictly 2D with shape (T_eff, K)
+        if states.ndim == 1:
+            states = states[:, np.newaxis]  # Convert (T_eff,) -> (T_eff, 1)
+        elif states.ndim == 2:
+            # Handle (K, T_eff) vs (T_eff, K) layout
+            if states.shape[0] < states.shape[1] and states.shape[1] == (data_size - self.washout):
+                states = states.T
+            elif states.shape[0] != (data_size - self.washout) and states.shape[1] == (data_size - self.washout):
+                states = states.T
+
+        # X is ready directly — do NOT slice self.washout again!
+        X = states  
+        T_eff = X.shape[0]
+
+        if T_eff <= 0:
+            raise ValueError(f"T_eff is 0. Verify data_size ({data_size}) is greater than washout ({self.washout}).")
+
+        # 3. Generate target specs
+        target_specs = self._generate_ipc_specs(d_max=d_max, tau_max=tau_max)
+
+        # 4. Construct Target Matrix Z (shape: T_eff x N)
+        Z_list = []
+        valid_specs = []
+
+        for degrees, delays in target_specs:
+            if max(delays) > self.washout:
+                continue
+
+            z_i = np.ones(T_eff, dtype=float)
+            for deg, tau in zip(degrees, delays):
+                # u has length data_size. 
+                # Post-washout output spans u[washout : data_size].
+                # Delayed input u(t - tau) spans u[washout - tau : data_size - tau].
+                # Both produce exact length: (data_size - tau) - (washout - tau) = T_eff
+                u_delayed = u[self.washout - tau : data_size - tau]
+                z_i = z_i * _normalized_legendre(deg)(u_delayed)
+
+            Z_list.append(z_i)
+            valid_specs.append((degrees, delays))
+
+        if not Z_list:
+            raise ValueError(f"No valid targets generated. Ensure washout ({self.washout}) >= tau_max ({tau_max}).")
+
+        Z = np.column_stack(Z_list)  # Shape: (T_eff, N)
+
+        # 5. Linear Regression W* = argmin ||X W - Z||^2 (Shape of W_opt: K x N)
+        # Instead of np.linalg.lstsq(X, Z):
+        K = X.shape[1]
+        gamma = 1e-5  # Ridge parameter
+        W_opt = np.linalg.inv(X.T @ X + gamma * np.eye(K)) @ (X.T @ Z)
+
+        # 6. Reconstruct targets Z_hat = X @ W_opt (Shape: T_eff x N)
+        Z_hat = X @ W_opt
+
+        # 7. Compute individual target capacities C_i
+        capacities_dict = {}
+        total_capacity = 0.0
+
+        for i, spec in enumerate(valid_specs):
+            z_true = Z[:, i]
+            z_pred = Z_hat[:, i]
+
+            var_z = np.var(z_true)
+            if var_z == 0:
+                continue
+
+            mse = np.mean((z_pred - z_true) ** 2)
+            c_i = float(1.0 - (mse / var_z))
+
+            c_i = max(0.0, c_i)
+            if c_i >= threshold:
+                capacities_dict[spec] = c_i
+                total_capacity += c_i
+
+        return total_capacity, capacities_dict
+
+    def _generate_ipc_specs(self, d_max: int, tau_max: int) -> list[tuple[tuple[int, ...], tuple[int, ...]]]:
+        """
+        Helper method to generate all valid orthogonal degree and delay tuple pairs.
+        Prevents duplicate terms according to IPC mathematical rules.
+        """
+        from itertools import combinations_with_replacement, product
+
+        specs = []
+        
+        # Helper to partition degree D into degree tuples
+        def get_degree_tuples(total_degree):
+            if total_degree == 1:
+                yield (1,)
+                return
+            for k in range(1, total_degree + 1):
+                for comp in combinations_with_replacement(range(1, total_degree + 1), k):
+                    if sum(comp) == total_degree:
+                        yield comp
+
+        for D in range(1, d_max + 1):
+            for deg_tuple in set(get_degree_tuples(D)):
+                # Generate valid delay tuples for this degree tuple
+                L = len(deg_tuple)
+                for delay_tuple in product(range(tau_max + 1), repeat=L):
+                    # Rule: If degrees are identical, delays MUST be strictly increasing (tau_1 < tau_2 < ...)
+                    # to prevent duplicate basis targets.
+                    is_valid = True
+                    for i in range(L - 1):
+                        if deg_tuple[i] == deg_tuple[i+1] and delay_tuple[i] >= delay_tuple[i+1]:
+                            is_valid = False
+                            break
+                    if is_valid:
+                        specs.append((deg_tuple, delay_tuple))
+
+        return specs
     
 def json_converter(o):
     if isinstance(o, np.integer):

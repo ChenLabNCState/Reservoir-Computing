@@ -5,10 +5,79 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from classes.JJ import JJ
 import qutip as qt
-import numpy
+import numpy as np
 import matplotlib.pyplot as plt
 from classes.RC import generate_mackey_glass
 from pathlib import Path
+from collections import defaultdict
+
+def plot_ipc_by_degree(capacities_dict, total_capacity=None, figsize=(10, 4.5), save_path=None):
+    """
+    Plots IPC breakdown grouped by degree D = sum(degrees), showing absolute capacity
+    and fractional contribution per degree similar to Dambre et al. (2012).
+    
+    Parameters:
+        capacities_dict (dict): Dictionary mapping ((deg1, deg2, ...), (tau1, tau2, ...)) -> C_i
+        total_capacity (float, optional): Sum of all capacities. Calculated if None.
+        figsize (tuple): Dimensions of the figure.
+        save_path (str, optional): File path to save the plot.
+    """
+    if not capacities_dict:
+        print("Warning: capacities_dict is empty. Nothing to plot.")
+        return
+
+    # 1. Group capacity values by total degree D = sum(degrees)
+    degree_capacities = defaultdict(float)
+    for (degrees, delays), c_i in capacities_dict.items():
+        total_deg = sum(degrees)
+        degree_capacities[total_deg] += c_i
+
+    # Sorted list of degrees and corresponding absolute capacity
+    degrees = sorted(degree_capacities.keys())
+    abs_capacities = np.array([degree_capacities[d] for d in degrees])
+    
+    if total_capacity is None or total_capacity == 0:
+        total_capacity = np.sum(abs_capacities)
+
+    # 2. Calculate fractional capacities per degree
+    fractions = abs_capacities / total_capacity if total_capacity > 0 else np.zeros_like(abs_capacities)
+
+    # 3. Create two-panel plot (Absolute & Fractional)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
+
+    colors = plt.cm.viridis(np.linspace(0.2, 0.8, len(degrees)))
+
+    # Panel 1: Absolute Capacity per Degree (C_D)
+    bars1 = ax1.bar([f"Deg {d}" for d in degrees], abs_capacities, color=colors, edgecolor="black", alpha=0.85)
+    ax1.set_ylabel("Absolute Capacity $C_D$", fontsize=11)
+    ax1.set_title("Capacity per Degree $D$", fontsize=12, fontweight="bold")
+    ax1.grid(axis="y", linestyle="--", alpha=0.5)
+
+    # Add numeric labels on top of absolute capacity bars
+    for bar in bars1:
+        yval = bar.get_height()
+        ax1.text(bar.get_x() + bar.get_width()/2.0, yval + 0.01 * max(abs_capacities), 
+                 f"{yval:.3f}", ha="center", va="bottom", fontsize=9)
+
+    # Panel 2: Fraction of Total Capacity (C_D / C_total)
+    bars2 = ax2.bar([f"Deg {d}" for d in degrees], fractions * 100, color=colors, edgecolor="black", alpha=0.85)
+    ax2.set_ylabel("Fraction of Total Capacity (%)", fontsize=11)
+    ax2.set_title(f"Degree Contribution ($C_{{total}} = {total_capacity:.2f}$)", fontsize=12, fontweight="bold")
+    ax2.set_ylim(0, 105)
+    ax2.grid(axis="y", linestyle="--", alpha=0.5)
+
+    # Add percentage labels on top of fractional bars
+    for bar in bars2:
+        yval = bar.get_height()
+        ax2.text(bar.get_x() + bar.get_width()/2.0, yval + 1.5, 
+                 f"{yval:.1f}%", ha="center", va="bottom", fontsize=9, fontweight="bold")
+
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+
+    plt.show()
 
 
 
@@ -33,7 +102,7 @@ JJ_RC_OP1 = JJ(washout=washout,
            )
 
 JJ_RC_OP2 = JJ(washout=washout,
-           virtual_nodes=70,
+           virtual_nodes=20,
            k_inj=.15,
            I_dc=1.5,
            window_size=0,
@@ -63,119 +132,134 @@ for (i,reservoir) in enumerate(reservoir_list):
     is_OP2 = False
     if i == 1:
         is_OP2 = True
-    
-    reservoir.train(save_dynamics = True)
-    
-    print(f"Weight matrix for OP{i+1} is: \n{reservoir.W}")
-    
-    result = reservoir.test(test_data=testing_data[:-delay],test_targets=testing_data[delay:])
-    
-    print(f" OP{i+1} has Error of :{result[1]}")
-    
-    reservoir.plot(
-    save_dir=os.path.join(Path.cwd().parent,
-        f"test_plots\\JJ_OP{i+1}"
-    ),
-    save_fig=True
+
+    IPC_result = reservoir.evaluate_IPC()
+
+    # Run IPC evaluation
+    total_C, cap_dict = reservoir.evaluate_IPC(
+    data_size=1000, 
+    d_max=4, 
+    tau_max=20, 
+    threshold=0.002
     )
-    reservoir.plot_dynamics(start=start_idx,is_OP2=is_OP2)
-    reservoir.plot_dynamics_2(start = start_idx,cycles=200,is_OP2=is_OP2)
-    reservoir.plot_dynamics_3(start = start_idx, cycles=5,is_OP2=is_OP2)
-    # reservoir.plot_combined_dynamics2(start_step=100,phase_cycles=200,phase_cycles2=5)
+
+# Render the plots
+    plot_ipc_by_degree(cap_dict, total_capacity=total_C, save_path=f"OP{i+1}_capacities.png")
+
+    print(f"IPC for reservoir in OP{i+1} is {total_C}" )
+    
+    # reservoir.train(save_dynamics = True)
+    
+    # print(f"Weight matrix for OP{i+1} is: \n{reservoir.W}")
+    
+    # result = reservoir.test(test_data=testing_data[:-delay],test_targets=testing_data[delay:])
+    
+    # print(f" OP{i+1} has Error of :{result[1]}")
+    
+    # reservoir.plot(
+    # save_dir=os.path.join(Path.cwd().parent,
+    #     f"test_plots\\JJ_OP{i+1}"
+    # ),
+    # save_fig=True
+    # )
+    # reservoir.plot_dynamics(start_step=start_idx,is_OP2=is_OP2)
+    # reservoir.plot_dynamics_2(start_step= start_idx,cycles=200,is_OP2=is_OP2)
+    # reservoir.plot_dynamics_3(start_step= start_idx, cycles=5,is_OP2=is_OP2)
+    # # reservoir.plot_combined_dynamics2(start_step=100,phase_cycles=200,phase_cycles2=5)
 
 
-def run_parameter_sweep(base_params, sweeps: List[SweepSpec], base_dir):
+# def run_parameter_sweep(base_params, sweeps: List[SweepSpec], base_dir):
 
-    mg = generate_mackey_glass(total_length, dt, base_params.tau)
+#     mg = generate_mackey_glass(total_length, dt, base_params.tau)
 
-    if len(sweeps) < 2:
-        raise ValueError("Need at least two sweeps (curve + x-axis).")
+#     if len(sweeps) < 2:
+#         raise ValueError("Need at least two sweeps (curve + x-axis).")
 
-    x_sweep = sweeps[-1]
-    curve_sweep = sweeps[-2]
-    folder_sweeps = sweeps[:-2]
+#     x_sweep = sweeps[-1]
+#     curve_sweep = sweeps[-2]
+#     folder_sweeps = sweeps[:-2]
 
-    # iterate through every combination of outer parameters
-    outer_value_lists = [s.values for s in folder_sweeps]
+#     # iterate through every combination of outer parameters
+#     outer_value_lists = [s.values for s in folder_sweeps]
 
-    sweep_num = 0
-    curve_num = 0
-    sim_num = 0
+#     sweep_num = 0
+#     curve_num = 0
+#     sim_num = 0
 
-    for outer_vals in product(*outer_value_lists) if outer_value_lists else [()]:
+#     for outer_vals in product(*outer_value_lists) if outer_value_lists else [()]:
 
-        params = replace(base_params)
+#         params = replace(base_params)
 
-        save_dir = base_dir
+#         save_dir = base_dir
 
-        # apply outer sweep parameters
-        for sweep_spec, val in zip(folder_sweeps, outer_vals):
+#         # apply outer sweep parameters
+#         for sweep_spec, val in zip(folder_sweeps, outer_vals):
 
-            sweep_num +=1
-            print(f"\n\n ---------- Starting sweep {sweep_num} for {sweep_spec.name}:{val} ----------\n\n")
+#             sweep_num +=1
+#             print(f"\n\n ---------- Starting sweep {sweep_num} for {sweep_spec.name}:{val} ----------\n\n")
 
-            setattr(params, sweep_spec.name, val)
+#             setattr(params, sweep_spec.name, val)
 
-            save_dir = os.path.join(
-                save_dir,
-                f"{sweep_spec.name}_{val}"
-            )
+#             save_dir = os.path.join(
+#                 save_dir,
+#                 f"{sweep_spec.name}_{val}"
+#             )
 
-        os.makedirs(save_dir, exist_ok=True)
+#         os.makedirs(save_dir, exist_ok=True)
 
-        # save parameters JSON
-        with open(os.path.join(save_dir, "parameters.json"), "w") as f:
-            json.dump(asdict(params), f, indent=4, default=json_converter)
+#         # save parameters JSON
+#         with open(os.path.join(save_dir, "parameters.json"), "w") as f:
+#             json.dump(asdict(params), f, indent=4, default=json_converter)
 
-        error_matrix = []
-        best_predictions = []
-        best_shifts = []
+#         error_matrix = []
+#         best_predictions = []
+#         best_shifts = []
 
-        for curve_val in curve_sweep.values:
+#         for curve_val in curve_sweep.values:
 
-            curve_num +=1
-            print(f"\n--- Starting curve {curve_num} for {curve_sweep.name}:{curve_val} ---")
+#             curve_num +=1
+#             print(f"\n--- Starting curve {curve_num} for {curve_sweep.name}:{curve_val} ---")
 
-            errors = []
-            predictions = []
-            shift = []
-
-
-            for sweep_val in x_sweep.values:
-
-                sim_num +=1
-                print(f"Running sim {sim_num} for {x_sweep.name}:{sweep_val}")
-
-                current_params = replace(params)
-
-                setattr(current_params, curve_sweep.name, curve_val)
-                setattr(current_params, x_sweep.name, sweep_val)
-
-                y_t, y_p, err = run_simulation(current_params,mg)
-
-                errors.append(err)
-                predictions.append((y_t, y_p))
-
-            errors = np.array(errors)
-
-            best_idx = np.argmin(errors)
-
-            error_matrix.append(errors)
-            best_predictions.append(predictions[best_idx][1])
+#             errors = []
+#             predictions = []
+#             shift = []
 
 
-        error_matrix = np.array(error_matrix)
+#             for sweep_val in x_sweep.values:
 
-        plot_and_save(
-            mg,
-            x_sweep,
-            curve_sweep,
-            x_sweep.values,
-            curve_sweep.values,
-            error_matrix,
-            best_predictions,
-            save_dir
-        )
+#                 sim_num +=1
+#                 print(f"Running sim {sim_num} for {x_sweep.name}:{sweep_val}")
+
+#                 current_params = replace(params)
+
+#                 setattr(current_params, curve_sweep.name, curve_val)
+#                 setattr(current_params, x_sweep.name, sweep_val)
+
+#                 y_t, y_p, err = run_simulation(current_params,mg)
+
+#                 errors.append(err)
+#                 predictions.append((y_t, y_p))
+
+#             errors = np.array(errors)
+
+#             best_idx = np.argmin(errors)
+
+#             error_matrix.append(errors)
+#             best_predictions.append(predictions[best_idx][1])
+
+
+#         error_matrix = np.array(error_matrix)
+
+#         plot_and_save(
+#             mg,
+#             x_sweep,
+#             curve_sweep,
+#             x_sweep.values,
+#             curve_sweep.values,
+#             error_matrix,
+#             best_predictions,
+#             save_dir
+#         )
 
 
 
