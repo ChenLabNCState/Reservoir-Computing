@@ -8,7 +8,10 @@ import json
 import random
 from enum import Enum
 from scipy.special import eval_legendre
-import itertools
+from itertools import combinations
+
+from scipy.special import legendre
+
 class IPC_type(Enum):
     UNIFORM = 1
     NORMAL = 2
@@ -21,6 +24,20 @@ def _normalized_legendre(n):
     scale = np.sqrt(2 * n + 1)
     # The default argument 'n=n' binds the loop value immediately
     return lambda x, n=n, s=scale: s * eval_legendre(n, x)
+
+def eval_legendre_norm(degree, x):
+            """Evaluates the orthonormal Legendre polynomial P_n(x) with unit variance."""
+            norm_factor = np.sqrt(2 * degree + 1)
+            return norm_factor * eval_legendre(degree, x)
+
+
+def normalized_legendre(n, x):
+            # Standard Legendre polynomial of degree n
+            pn = legendre(n)
+            # L2 normalization factor for interval [-1, 1]
+            norm_factor = np.sqrt((2 * n + 1) / 2)
+            return norm_factor * pn(x)
+
 
 @dataclass(kw_only=True)
 class RC(ABC):
@@ -183,7 +200,12 @@ class RC(ABC):
     
         return rmse / target_std
 
-    def evaluate_IPC_me(self,tests_funcs,data_size,type = IPC_type.UNIFORM,d_max:int = 5,max_delay:int = 20):
+    def evaluate_IPC_me(self,
+                        window_max:int = 50,
+                        time_steps:int = 100,
+                        type = IPC_type.UNIFORM,
+                        d_max:int = 5,
+                        max_delay:int = 20):
         """
         This method computes the information proccessing capacity of the reservoir. This number can slightly over different runs
         as it is based on the reservoirs response to inputs sampled from various distributions (default to UNIFORM).
@@ -193,54 +215,74 @@ class RC(ABC):
                 
         """
 
+        #Define helper functions to be used later in the function:
 
-        #Create uniform input sequence of length T claled u(t)
+        #Creates Legendre polynomials out of a list 
 
-        
-        rng = np.random.default_rng()
+        def build_legendre_product(permutation):
+            """Returns a function that evaluates the product of orthonormal Legendre polynomials."""
+            def target_func(x):
+                result = 1.0
+                for degree in permutation:
+                    result *= eval_legendre_norm(degree, x)
+                return result
+            return target_func
 
-        samples = rng.uniform(low=-1, high=1, size=data_size)
-
-        #Helper functions to generate all possible legendre polynomial and delay
-        #combinations as lists of tuples for a given order.
-
-        def integer_compositions(n, k):
-            """Generates all compositions of n into k positive integers (i >= 1)."""
-            if k == 1:
-                yield (n,)
+        #Finds permutations of n numbers that add to target
+        def find_permutations(n, target, current_path=None):
+            if current_path is None:
+                current_path = []
+            
+            # Base case: if we filled N positions
+            if len(current_path) == n - 1:
+                # The last element must make the sum equal to target
+                if 0 <= target:  # Assuming non-negative integers (>= 0)
+                    yield current_path + [target]
                 return
-            for cuts in itertools.combinations(range(1, n), k - 1):
-                yield tuple(b - a for a, b in zip((0,) + cuts, cuts + (n,)))
-
-        def get_tuple_combinations(degree, maximum_delay, min_j=1):
-            results = []
-            available_j = range(min_j, maximum_delay)  # j < delay_max
             
-            # Combination length k can range from 1 up to min(degree, len(available_j))
-            for k in range(1, min(degree, len(available_j)) + 1):
-                for j_combo in itertools.combinations(available_j, k):
-                    for i_comp in integer_compositions(degree, k):
-                        results.append(list(zip(i_comp, j_combo)))
-                        
-            return results
+            # Try all possible values from 0 up to target for the current position
+            for i in range(target + 1):
+                yield from find_permutations(n, target - i, current_path + [i])
 
-        tuple_dict = {}
-        for d in range(d_max):
+        #Finds (already ordered by nature) combinations of numbers from set [a,b] with k elements.  
+        def find_ordered_subsets(a: int, b: int, k: int) -> list[tuple[int, ...]]:
+            # range(a, b + 1) generates [a, a+1, ..., b] in order
+            return list(combinations(range(a, b + 1), k))
 
-            tuple_dict[d] = get_tuple_combinations(d,maximum_delay=max_delay)
-            
 
+
+        #Create uniform random numbers of length time_steps
+        rng = np.random.default_rng()
+        random_data = rng.uniform(low=-1, high=1, size=time_steps)
+
+        #Send this data into your reservoir and extract the output matrix (N outputs of reservoir for T time steps)
+        reservoir_data = self.simulate_data(random_data,save_dynamics=False,is_train=False)
+
+        #Choose total degree d of target function up to d_max
+        for deg in range(1,d_max+1):
+
+            #Choose number of non-zero polynomials from 0 to d_max
+            for n_poly in range(1,deg+1):
+
+                #Find permutation of N polynomials that all sum to d
+                permutation = find_permutations(n_poly,deg)
+
+                #Pick a window size from n_poly to _____
+                for window_size in range(n_poly,window_max):
+
+                    #Choose a combination of n_poly indices in range from 0,window_size-1
+                    find_ordered_subsets(a=0,b=window_size,)
+                    
+        
+        
 
 
 
 
         
 
-        #Construct all possible permutations of products of legendre/hermite polynomials up to degree of d_max
-        #   - the polynomials are functions of the uniform input u(t-tau)
-        #   - EX: P1(u(t-tau1))P2(u(t-tau3)) is one of many degree 3 polynomials.
-        #   - We can represent these functions by a tuple representing the legendre polymials and delays ie L:(1,2), tau:(1,3)
-        #   - Example of unallowed state: P1(u(t-tau1))P1(u(t-tau1)) as this is not orthogonal to P2(u(t-tau1)) 
+        #Construct all possible permutations of products of legendre/hermite polynomials up to degree of d_max 
+        #   - 
 
 
         #For all these possible polynomials find all possible allowed combinations of delays. 
