@@ -31,7 +31,7 @@ class JJ(RC_TimeSeries):
             super().__post_init__()
 
     def simulate_data(self, data, is_train: bool, save_dynamics: bool):
-        node_results = np.zeros((self.virtual_nodes, len(data) - self.washout))
+        node_results = np.zeros((self.virtual_nodes, len(data)))
         phi = self.initial_phi
         V = self.initial_v
 

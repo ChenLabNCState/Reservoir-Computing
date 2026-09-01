@@ -1,3 +1,4 @@
+from matplotlib.pylab import permutation
 import numpy as np
 import qutip as qt
 from dataclasses import dataclass, field, asdict
@@ -201,101 +202,102 @@ class RC(ABC):
         return rmse / target_std
 
     def evaluate_IPC_me(self,
-                        window_max:int = 50,
-                        time_steps:int = 100,
+                        window_max: int = 50,
+                        time_steps: int = 1000,
                         type = IPC_type.UNIFORM,
-                        d_max:int = 5,
-                        max_delay:int = 20):
+                        d_max: int = 5,
+                        threshold: float = 1e-3) -> tuple[float, np.ndarray]:
         """
-        This method computes the information proccessing capacity of the reservoir. This number can slightly over different runs
-        as it is based on the reservoirs response to inputs sampled from various distributions (default to UNIFORM).
-                
-        
-             
-                
+        Computes the Information Processing Capacity (IPC) of the reservoir using
+        orthonormal Legendre polynomials.
         """
+        if type != IPC_type.UNIFORM:
+            raise NotImplementedError("Currently, IPC is only implemented for UNIFORM distribution.")
 
-        #Define helper functions to be used later in the function:
+        # Helper: computes time-lagged orthonormal Legendre product vector
+        def compute_legendre_target(u_full, degrees, delays, washout):
+            T = len(u_full)
+            T_eff = T - washout
+            target = np.ones(T_eff, dtype=float)
+            for deg, tau in zip(degrees, delays):
+                # Time-lagged array slice (shift back by tau index steps)
+                u_delayed = u_full[washout - tau : T - tau]
+                target *= eval_legendre_norm(int(deg), u_delayed)
+            return target
 
-        #Creates Legendre polynomials out of a list 
-
-        def build_legendre_product(permutation):
-            """Returns a function that evaluates the product of orthonormal Legendre polynomials."""
-            def target_func(x):
-                result = 1.0
-                for degree in permutation:
-                    result *= eval_legendre_norm(degree, x)
-                return result
-            return target_func
-
-        #Finds permutations of n numbers that add to target
+        # Helper: partitions degree sum into non-zero integer degrees
         def find_permutations(n, target, current_path=None):
             if current_path is None:
                 current_path = []
-            
-            # Base case: if we filled N positions
             if len(current_path) == n - 1:
-                # The last element must make the sum equal to target
-                if 0 <= target:  # Assuming non-negative integers (>= 0)
+                if target >= 1:
                     yield current_path + [target]
                 return
-            
-            # Try all possible values from 0 up to target for the current position
-            for i in range(target + 1):
+            for i in range(1, target - (n - 1 - len(current_path)) + 1):
                 yield from find_permutations(n, target - i, current_path + [i])
 
-        #Finds (already ordered by nature) combinations of numbers from set [a,b] with k elements.  
+        # Helper: finds unique ordered subset delay combinations
         def find_ordered_subsets(a: int, b: int, k: int) -> list[tuple[int, ...]]:
-            # range(a, b + 1) generates [a, a+1, ..., b] in order
             return list(combinations(range(a, b + 1), k))
 
-
-
-        #Create uniform random numbers of length time_steps
+        # 1. Generate full random sequence u(t) ~ U[-1, 1]
         rng = np.random.default_rng()
-        random_data = rng.uniform(low=-1, high=1, size=time_steps)
+        full_random_data = rng.uniform(low=-1.0, high=1.0, size=time_steps)
 
-        #Send this data into your reservoir and extract the output matrix (N outputs of reservoir for T time steps)
-        reservoir_data = self.simulate_data(random_data,save_dynamics=False,is_train=False)
+        # 2. Simulate reservoir response and slice out washout period
+        raw_reservoir = self.simulate_data(full_random_data, save_dynamics=False, is_train=False)
+        reservoir_data = np.asarray(raw_reservoir)[:, self.washout:]  # Shape: (K, T_eff)
 
-        #Choose total degree d of target function up to d_max
-        for deg in range(1,d_max+1):
+        T_eff = reservoir_data.shape[1]
+        K = reservoir_data.shape[0]
 
-            #Choose number of non-zero polynomials from 0 to d_max
-            for n_poly in range(1,deg+1):
+        # Calculate finite-sample noise floor cutoff (R^2 ~ K / T_eff)
+        noise_floor = K / T_eff
+        effective_threshold = max(threshold, noise_floor + 0.01)
 
-                #Find permutation of N polynomials that all sum to d
-                permutation = find_permutations(n_poly,deg)
+        # Pre-calculate pseudoinverse once: shape (T_eff, K)
+        pinv_reservoir = np.linalg.pinv(reservoir_data)
 
-                #Pick a window size from n_poly to _____
-                for window_size in range(n_poly,window_max):
+        capacity_array = np.zeros(d_max)
 
-                    #Choose a combination of n_poly indices in range from 0,window_size-1
-                    find_ordered_subsets(a=0,b=window_size,)
-                    
+        # Max allowed delay tau must not exceed washout length
+        max_delay = min(window_max, self.washout)
+
+        # 3. Iterate through total degree D = 1..d_max
+        for deg in range(1, d_max + 1):
+            print(f"Evaluating IPC for total degree D={deg}...")
+            for n_poly in range(1, deg + 1):
+                deg_permutations = list(find_permutations(n_poly, deg))
+                delays_list = find_ordered_subsets(a=0, b=max_delay, k=n_poly)
+
+                for perm in deg_permutations:
+                    for delays in delays_list:
+                        # Generate time-delayed Legendre target vector (shape: T_eff,)
+                        target_series = compute_legendre_target(full_random_data, perm, delays, self.washout)
+
+                        # Calculate Weight Vector W (shape: K,)
+                        W = target_series @ pinv_reservoir
+
+                        # Reconstruct target prediction z_hat (shape: T_eff,)
+                        z_hat = W @ reservoir_data
+
+                        # Calculate MSE, Variance, and Capacity
+                        second_moment = np.mean(target_series**2)
+                        if second_moment == 0:
+                            continue
+
+                        mse = np.mean((z_hat - target_series) ** 2)
+                        capacity = 1.0 - (mse / second_moment)
+
+                        # Accumulate capacity if above the statistical noise threshold
+                        if capacity > effective_threshold:
+                            capacity_array[deg - 1] += capacity
+
+        return float(np.sum(capacity_array)), capacity_array
+
+
+
         
-        
-
-
-
-
-        
-
-        #Construct all possible permutations of products of legendre/hermite polynomials up to degree of d_max 
-        #   - 
-
-
-        #For all these possible polynomials find all possible allowed combinations of delays. 
-
-        #Evaluate all these functions 
-
-
-        if type == IPC_type.NORMAL:
-            pass
-        if type == IPC_type.UNIFORM:
-
-
-            return
     def evaluate_IPC(self, data_size: int = 1000, d_max: int = 3, tau_max: int = 20, threshold: float = 1e-3, type: IPC_type = IPC_type.UNIFORM) -> tuple[float, dict]:
         """
         Calculates the Information Processing Capacity (IPC) of the reservoir.
