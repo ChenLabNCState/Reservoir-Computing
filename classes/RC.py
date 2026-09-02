@@ -295,9 +295,73 @@ class RC(ABC):
 
         return float(np.sum(capacity_array)), capacity_array
 
+    def evaluate_IPC_joint(self, data_size: int = 5000, d_max: int = 4,
+                            tau_max: int = 10, threshold: float = 1e-3) -> tuple[float, np.ndarray]:
+        from itertools import combinations
 
+        def find_permutations(n, target, current_path=None):
+            """Ordered compositions of target into n positive integers."""
+            if current_path is None:
+                current_path = []
+            if len(current_path) == n - 1:
+                if target >= 1:
+                    yield current_path + [target]
+                return
+            for i in range(1, target - (n - 1 - len(current_path)) + 1):
+                yield from find_permutations(n, target - i, current_path + [i])
 
-        
+        rng = np.random.default_rng()
+        u = rng.uniform(-1.0, 1.0, size=data_size)
+
+        raw = self.simulate_data(u, is_train=False, save_dynamics=False)
+        states = np.asarray(raw)[:, self.washout:]  # (K, T_eff)
+        X = states.T                                # (T_eff, K)
+        T_eff, K = X.shape
+
+        # Adaptive noise floor threshold — scales with K/T_eff
+        noise_floor = K / T_eff
+        effective_threshold = max(threshold, 3.0 * noise_floor)
+
+        max_delay = min(tau_max, self.washout)
+        targets, degree_groups = [], []
+
+        for D in range(1, d_max + 1):
+            print(f"Calculating Capacity for degree {D}")
+            for n_poly in range(1, D + 1):
+                # Ordered degree assignments summing to D
+                deg_permutations = list(find_permutations(n_poly, D))
+                # DISTINCT time lags only — no same-lag products
+                delays_list = list(combinations(range(max_delay + 1), n_poly))
+
+                for perm in deg_permutations:
+                    for delay_tuple in delays_list:
+                        z = np.ones(T_eff)
+                        for d, tau in zip(perm, delay_tuple):
+                            u_lag = u[self.washout - tau : data_size - tau]
+                            z *= eval_legendre_norm(d, u_lag)
+                        targets.append(z)
+                        degree_groups.append(D)
+
+        Z = np.column_stack(targets)  # (T_eff, N)
+
+        # One joint regression — correctly bounds total IPC ≤ K
+        gamma = 1e-5
+        W_opt = np.linalg.solve(X.T @ X + gamma * np.eye(K), X.T @ Z)
+        Z_hat = X @ W_opt  # (T_eff, N)
+
+        capacity_array = np.zeros(d_max)
+        for i, D in enumerate(degree_groups):
+            var_z = np.var(targets[i])
+            if var_z == 0:
+                continue
+            mse = np.mean((Z_hat[:, i] - targets[i]) ** 2)
+            c_i = max(0.0, 1.0 - mse / var_z)
+            if c_i >= effective_threshold:
+                capacity_array[D - 1] += c_i
+
+        return float(np.sum(capacity_array)), capacity_array
+
+    
     def evaluate_IPC(self, data_size: int = 1000, d_max: int = 3, tau_max: int = 20, threshold: float = 1e-3, type: IPC_type = IPC_type.UNIFORM) -> tuple[float, dict]:
         """
         Calculates the Information Processing Capacity (IPC) of the reservoir.

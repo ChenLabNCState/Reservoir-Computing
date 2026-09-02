@@ -11,7 +11,7 @@ from classes.RC import generate_mackey_glass
 from pathlib import Path
 from collections import defaultdict
 
-def plot_ipc_by_degree(capacities_list, total_capacity=None, figsize=(10, 4.5), save_path=None):
+def plot_ipc_by_degree(capacities_list, total_capacity:float, figsize=(10, 4.5), save_path=None):
     """
     Plots IPC breakdown grouped by degree D = sum(degrees), showing absolute capacity
     and fractional contribution per degree similar to Dambre et al. (2012).
@@ -122,10 +122,10 @@ for (i,reservoir) in enumerate(reservoir_list):
 
 
     # Run IPC evaluation
-    total_C, cap_list = reservoir.evaluate_IPC_me(
-    window_max=10,
-    time_steps=1000,
-    d_max = 4,
+    total_C, cap_list = reservoir.evaluate_IPC_joint(
+        data_size=5000,
+        d_max=4,
+        tau_max=10
     )
 
     # Render the plots
