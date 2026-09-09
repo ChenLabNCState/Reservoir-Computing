@@ -31,7 +31,6 @@ def eval_legendre_norm(degree, x):
             norm_factor = np.sqrt(2 * degree + 1)
             return norm_factor * eval_legendre(degree, x)
 
-
 def normalized_legendre(n, x):
             # Standard Legendre polynomial of degree n
             pn = legendre(n)
@@ -43,16 +42,13 @@ def normalized_legendre(n, x):
 @dataclass(kw_only=True)
 class RC(ABC):
     #Mandatory Parameters
-    training_data: np.ndarray
     washout: int 
-
 
     #Optional parameters with defaults
     window_size: int = field(default=10,init=True)
    
 
     # Data to be assigned later or given in subclasses
-    training_targets: np.ndarray | None = field(default=None)
     dynamics_data: list = field(default_factory=list, init=False)
     is_trained: bool = field(default=False, init=False)
     rest_time_steps: int | None = field(default=None, init=False)
@@ -62,30 +58,26 @@ class RC(ABC):
     
     def __post_init__(self):
 
-        self.training_targets = self.training_data[self.washout:]
+        return
 
 
-    def train(self,save_dynamics:bool = False) -> np.ndarray:
+    def train(self,data:np.ndarray,targets: np.ndarray,save_dynamics:bool = False) -> np.ndarray:
         """
         Overarching method that will train the model with the data given and update the weight matrix
         
         """
 
-        if self.training_targets is None:
-            raise ValueError(
-                f"Training targets must be assigned and are currently {None}"
-            )
-
         #Exclude washout period in results
-        training_results = self.simulate_data(self.training_data,save_dynamics=save_dynamics,is_train=True)[:,self.washout:]
+        training_results = self.simulate_data(data,save_dynamics=save_dynamics,is_train=True)[:,self.washout:]
 
         inverse_train = np.linalg.pinv(training_results)
 
-        self.W = self.training_targets @ inverse_train
+        self.W = targets @ inverse_train
         
         self.is_trained = True
 
         return self.W
+
 
     def test(self,test_data,test_targets) -> tuple[np.ndarray,float]:
         """
@@ -253,7 +245,8 @@ class RC(ABC):
 
         # Calculate finite-sample noise floor cutoff (R^2 ~ K / T_eff)
         noise_floor = K / T_eff
-        effective_threshold = max(threshold, noise_floor + 0.01)
+        # effective_threshold = max(threshold, noise_floor + 0.01)
+        effective_threshold = threshold
 
         # Pre-calculate pseudoinverse once: shape (T_eff, K)
         pinv_reservoir = np.linalg.pinv(reservoir_data)
@@ -331,7 +324,7 @@ class RC(ABC):
                 # Ordered degree assignments summing to D
                 deg_permutations = list(find_permutations(n_poly, D))
                 # DISTINCT time lags only — no same-lag products
-                delays_list = list(combinations(range(max_delay + 1), n_poly))
+                delays_list = list(combinations(range(1,max_delay + 1), n_poly))
 
                 for perm in deg_permutations:
                     for delay_tuple in delays_list:

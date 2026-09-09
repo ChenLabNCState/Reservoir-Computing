@@ -78,7 +78,7 @@ start_idx = 100
 
 
 JJ_RC_OP1 = JJ(washout=washout,
-           virtual_nodes=20,
+           virtual_nodes= 1,
            k_inj=.25,
            I_dc=0.5,
            window_size=0,
@@ -89,7 +89,7 @@ JJ_RC_OP1 = JJ(washout=washout,
            )
 
 JJ_RC_OP2 = JJ(washout=washout,
-           virtual_nodes=20,
+           virtual_nodes=1,
            k_inj=.15,
            I_dc=1.5,
            window_size=0,
@@ -101,7 +101,7 @@ JJ_RC_OP2 = JJ(washout=washout,
            )
 
 JJ_RC_OP3 =JJ(washout=washout,
-           virtual_nodes=20,
+           virtual_nodes=1,
            k_inj=.1,
            I_dc=.95,
            window_size=0,
@@ -125,7 +125,8 @@ for (i,reservoir) in enumerate(reservoir_list):
     total_C, cap_list = reservoir.evaluate_IPC_joint(
         data_size=5000,
         d_max=4,
-        tau_max=10
+        tau_max=10,
+        threshold=0,
     )
 
     # Render the plots
