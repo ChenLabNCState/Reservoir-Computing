@@ -1,57 +1,52 @@
+import os
+import sys
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from matplotlib.pylab import permutation
 import numpy as np
 import qutip as qt
 from dataclasses import dataclass, field, asdict
 from abc import ABC, abstractmethod
 import matplotlib.pyplot as plt
-import os
 import json
-import random
+
 from enum import Enum
 from scipy.special import eval_legendre
 from itertools import combinations
 
-from scipy.special import legendre
+from utilities.save import json_converter
 
 class IPC_type(Enum):
     UNIFORM = 1
     NORMAL = 2
 
-def _normalized_legendre(n):
-    """
-    Factory function returning a normalized Legendre polynomial of degree n.
-    tilde_P_n(x) = sqrt(2n + 1) * P_n(x)
-    """
-    scale = np.sqrt(2 * n + 1)
-    # The default argument 'n=n' binds the loop value immediately
-    return lambda x, n=n, s=scale: s * eval_legendre(n, x)
+class reg_type(Enum):
+    PINV = 1
+    RIDGE = 2
 
-def eval_legendre_norm(degree, x):
-            """Evaluates the orthonormal Legendre polynomial P_n(x) with unit variance."""
-            norm_factor = np.sqrt(2 * degree + 1)
-            return norm_factor * eval_legendre(degree, x)
+def _regression(data,targets,type:reg_type = reg_type.PINV,ridge:float = 1e-3):
+    match reg_type:
+        case reg_type.PINV:
+            inverse_train = np.linalg.pinv(data)
 
-def normalized_legendre(n, x):
-            # Standard Legendre polynomial of degree n
-            pn = legendre(n)
-            # L2 normalization factor for interval [-1, 1]
-            norm_factor = np.sqrt((2 * n + 1) / 2)
-            return norm_factor * pn(x)
+        case reg_type.RIDGE:
+            inverse_train = np.linalg.inv(data.T @ data 
+                                        + ridge * np.eye(data.shape[1]) ) @ data.T @ targets
 
+    return inverse_train
 
 @dataclass(kw_only=True)
 class RC(ABC):
-    #Mandatory Parameters
+    #Number of elements to exclude when proceessing data. 
+    #Ie simulate data returns (data_size) elements and then conducts training/testing on (data_size-washout)    
     washout: int 
-
-    #Optional parameters with defaults
-    window_size: int = field(default=10,init=True)
    
+    #State variables
+    is_trained: bool = field(default=False, init=False)
 
     # Data to be assigned later or given in subclasses
     dynamics_data: list = field(default_factory=list, init=False)
-    is_trained: bool = field(default=False, init=False)
-    rest_time_steps: int | None = field(default=None, init=False)
     predictions: np.ndarray | None = field(default=None, init=False)
     test_targets: np.ndarray | None = field(default=None, init=False)
     W: np.ndarray | None = field(default=None, init=False)
@@ -60,24 +55,36 @@ class RC(ABC):
 
         return
 
-
-    def train(self,data:np.ndarray,targets: np.ndarray,save_dynamics:bool = False) -> np.ndarray:
+    def train(self,data:np.ndarray,
+              targets: np.ndarray,
+              reg_type:reg_type = reg_type.PINV,
+              save_dynamics:bool = False) -> np.ndarray:
         """
         Overarching method that will train the model with the data given and update the weight matrix
         
         """
 
-        #Exclude washout period in results
-        training_results = self.simulate_data(data,save_dynamics=save_dynamics,is_train=True)[:,self.washout:]
 
-        inverse_train = np.linalg.pinv(training_results)
+        #Exclude washout period in results
+        training_results = self.simulate_data(
+            data,
+            save_dynamics=save_dynamics,
+            is_train=True
+        )[:,self.washout:]
+
+        #Different inverse calculations
+        
+        inverse_train = _regression(
+            data=training_results,
+            targets=targets,
+            type=reg_type
+        )
 
         self.W = targets @ inverse_train
         
         self.is_trained = True
 
         return self.W
-
 
     def test(self,test_data,test_targets) -> tuple[np.ndarray,float]:
         """
@@ -113,6 +120,7 @@ class RC(ABC):
         """
         pass
 
+    #Method to plot predictions vs test targets and save to a directtory
     def plot(self, save_dir=None, save_fig=False, filename="prediction_plot.png"):
         """
         Plotting method that will plot and save self.testing_targets and self.predictions.
@@ -162,8 +170,8 @@ class RC(ABC):
 
         plt.close()
 
-
-    def _calc_nrmse(self,targets):
+    #Method to calculate nrmse between targets and self.predictions
+    def _calc_nrmse(self,targets) -> float: 
         """
         Calculates the Normalized Root Mean Squared Error.
         Forces inputs to 1D to prevent broadcasting errors.
@@ -192,6 +200,7 @@ class RC(ABC):
             return np.nan 
     
         return rmse / target_std
+
 
     def evaluate_IPC_me(self,
                         window_max: int = 50,
@@ -288,9 +297,11 @@ class RC(ABC):
 
         return float(np.sum(capacity_array)), capacity_array
 
-    def evaluate_IPC_joint(self, data_size: int = 5000, d_max: int = 4,
-                            tau_max: int = 10, threshold: float = 1e-3) -> tuple[float, np.ndarray]:
-        from itertools import combinations
+    def evaluate_IPC_joint(self, 
+                           data_size: int = 5000, 
+                           d_max: int = 4,
+                           tau_max: int = 10,
+                           threshold: float = 1e-3) -> tuple[float, np.ndarray]:
 
         def find_permutations(n, target, current_path=None):
             """Ordered compositions of target into n positive integers."""
@@ -303,12 +314,20 @@ class RC(ABC):
             for i in range(1, target - (n - 1 - len(current_path)) + 1):
                 yield from find_permutations(n, target - i, current_path + [i])
 
+        def eval_legendre_norm(degree, x):
+            """Evaluates the orthonormal Legendre polynomial P_n(x) with unit variance."""
+            norm_factor = np.sqrt(2 * degree + 1)
+            return norm_factor * eval_legendre(degree, x)
+
         rng = np.random.default_rng()
         u = rng.uniform(-1.0, 1.0, size=data_size)
 
+        #Simulate raw data into reservoir
         raw = self.simulate_data(u, is_train=False, save_dynamics=False)
-        states = np.asarray(raw)[:, self.washout:]  # (K, T_eff)
-        X = states.T                                # (T_eff, K)
+
+
+        clean_data = np.asarray(raw)[:, self.washout:]  # (K, T_eff)
+        X = clean_data.T                                # (T_eff, K)
         T_eff, K = X.shape
 
         # Adaptive noise floor threshold — scales with K/T_eff
@@ -338,8 +357,8 @@ class RC(ABC):
         Z = np.column_stack(targets)  # (T_eff, N)
 
         # One joint regression — correctly bounds total IPC ≤ K
-        gamma = 1e-5
-        W_opt = np.linalg.solve(X.T @ X + gamma * np.eye(K), X.T @ Z)
+
+        W_opt = _regression(X, Z)
         Z_hat = X @ W_opt  # (T_eff, N)
 
         capacity_array = np.zeros(d_max)
@@ -353,7 +372,6 @@ class RC(ABC):
                 capacity_array[D - 1] += c_i
 
         return float(np.sum(capacity_array)), capacity_array
-
     
     def evaluate_IPC(self, data_size: int = 1000, d_max: int = 3, tau_max: int = 20, threshold: float = 1e-3, type: IPC_type = IPC_type.UNIFORM) -> tuple[float, dict]:
         """
@@ -483,19 +501,6 @@ class RC(ABC):
 
         return specs
     
-def json_converter(o):
-    if isinstance(o, np.integer):
-        return int(o)
-    if isinstance(o, np.floating):
-        return float(o)
-    if isinstance(o, np.ndarray):
-        return f"Big Array with shape = {o.shape}"
-    if isinstance(o, qt.Qobj):
-        # Safely bypass the object by saving its string description metadata
-        return f"<QuTiP Qobj: dims={o.dims}, type={o.type}>"
-    raise TypeError(f"Object of type {type(o)} is not JSON serializable")
-
-
 
 @dataclass(kw_only=True)
 class RC_Classification(RC):
@@ -503,26 +508,10 @@ class RC_Classification(RC):
     classification_dim:int
 
     def __post_init__(self):
-        # 1. Enforce that it is required for THIS subclass
-        if self.training_targets is None:
-            raise ValueError(
-                "For QRC_TimeSeries, 'training_targets' is a required parameter "
-                "and cannot be left as None."
-                
-            )
-        
-        # if len(self.training_data) - len(self.training_targets) == self.window_size-1:
-        #     self.training_targets = self.clean_target(self.training_targets)
-
-        # 2. Pass control up to the rest of your MRO chain
         if hasattr(super(), '__post_init__'):
             super().__post_init__()
-
-    def clean_target(self,targets):
-        return targets[self.window_size:]
     
     pass
-
 
 
 @dataclass(kw_only=True)
@@ -530,7 +519,7 @@ class RC_TimeSeries(RC):
     
     delay:int = 1
 
-    training_target_length: int | None = field(default=None,init=False)
+    window_size: int = field(default=20, init=False)
 
     def __post_init__(self):
 
@@ -542,57 +531,3 @@ class RC_TimeSeries(RC):
         if hasattr(super(), '__post_init__'):
             super().__post_init__()
     
-
-def generate_mixed_amplitude_sequence(
-    total_points=150,
-    segment_length_min=10,
-    segment_length_max=10,
-    sine_amplitude=1.0,
-    square_amplitude=1.0,
-    frequency=0.2,
-    noise_level=0.0
-):
-    sequence = []
-    labels = []
-    current_points = 0
-
-    while current_points < total_points:
-        length = random.randint(segment_length_min, segment_length_max)
-        if current_points + length > total_points:
-            length = total_points - current_points
-
-        pulse_type = random.choice(['sine', 'square'])
-        t = np.arange(length)
-
-        if pulse_type == 'sine':
-            pulse = sine_amplitude * np.sin(2 * np.pi * frequency * t)
-            label = 0
-        else:
-            pulse = square_amplitude * np.ones(length)
-            label = 1
-
-        if noise_level > 0:
-            pulse += np.random.normal(0, noise_level, length)
-
-        sequence.extend(pulse)
-        labels.extend([label] * length)
-        current_points += length
-
-    return np.array(sequence), np.array(labels)
-
-
-def generate_mackey_glass(length, dt=0.1, tau=17, beta=0.2, gamma=0.1, n=10):
-    delay_steps = int(tau / dt)
-    history = np.ones(delay_steps) * 0.9
-    x = history[-1]
-    series = []
-    for _ in range(length):
-        x_tau = history[0]
-        dx = beta * x_tau / (1 + x_tau**n) - gamma * x
-        x += dx * dt
-        series.append(x)
-        history = np.roll(history, -1)
-        history[-1] = x
-    series = np.array(series)
-    return series / (series.max())
-
