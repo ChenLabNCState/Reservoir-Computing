@@ -26,7 +26,7 @@ RHO       = 2.5          # paper's bifurcation parameter
 D_MAX     = 4            # degrees 1–4
 TAU_MAX   = 10           # max delay for IPC targets
 DATA_SIZE = 5000         # IPC time series length
-WASHOUT   = 200          # must be ≥ TAU_MAX
+WASHOUT   = 1000          # must be ≥ TAU_MAX
  
 # ── Colour map: dark blue → cyan → yellow/orange (matching paper) ─────────────
 DEGREE_COLORS = ["#1a3a8f", "#2176c8", "#5cb8e8", "#c8e83c"]
@@ -43,14 +43,13 @@ for idx, i_inj in enumerate(I_VALUES):
     print(f"[{idx+1}/{len(I_VALUES)}]  ι = {i_inj:.2f}", flush=True)
  
     rc = LogisticMapRC(
-        training_data = dummy_train,
         washout       = WASHOUT,
         rho           = RHO,
         i_inj         = i_inj,
         initial_x     = 0.5,
     )
  
-    total, cap_array = rc.evaluate_IPC_joint(
+    total, cap_array = rc.evaluate_IPC(
         data_size = DATA_SIZE,
         d_max     = D_MAX,
         tau_max   = TAU_MAX,

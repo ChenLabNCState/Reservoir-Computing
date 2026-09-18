@@ -86,25 +86,3 @@ def generate_logistic_sequence(
         out[t] = x
     return out
  
- 
-# ── Example usage ─────────────────────────────────────────────────────────────
-#
-#   from LogisticMapRC import LogisticMapRC, generate_logistic_sequence
-#
-#   full_data    = generate_logistic_sequence(n=1200, rho=3.7)
-#   train_data   = full_data[:1000]
-#   test_data    = full_data[1000:]
-#   test_targets = full_data[1001:]       # one-step-ahead prediction
-#
-#   rc = LogisticMapRC(
-#       training_data = train_data,
-#       washout       = 100,
-#       rho           = 3.7,
-#       i_inj         = 0.2,
-#   )
-#
-#   rc.train()
-#   predictions, nrmse = rc.test(test_data, test_targets)
-#   print(f"NRMSE: {nrmse:.4f}")
-#   rc.plot()
- 

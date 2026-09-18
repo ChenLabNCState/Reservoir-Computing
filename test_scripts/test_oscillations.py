@@ -1,8 +1,14 @@
+import os
+import sys
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import qutip as qt
-import QRC
+import classes.QRC 
 import numpy as np
 import matplotlib.pyplot as plt
-from QRC import normalize_subspace
+from classes.QRC import normalize_subspace
+
 
 
 def custom_pauli(N, state_a_index, state_b_index):
@@ -87,11 +93,3 @@ axs[2].set_xlabel("Time", fontsize=12)
 plt.tight_layout()
 plt.show()
 
-# test_QRC = QRC.QRC_TimeSeries(N=N_dim,
-#                               dissipations=c_ops,
-#                               H_base=qt.qeye(3),
-#                               H_interaction=H_int,
-#                               measurement_ops=measurement_ops,
-#                               initial_state=initial_state,
-#                               subspace_dim=2,
-#                               subspace_offset=1)

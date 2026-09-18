@@ -38,14 +38,15 @@ def custom_dissipator(N, destroy_index):
 N_dim = 3
 pulse_duration = 5
 pulse_time_steps = 50
-window_size = 5
+window_size = 20
+d = 500
 #3level system
 
 # training_data,training_targets = QRC.generate_mixed_amplitude_sequence(noise_level=0.0)
 
 # testing_data,testing_targets = QRC.generate_mixed_amplitude_sequence(noise_level=0)
 
-data = generate_mackey_glass(200)
+data = generate_mackey_glass(d,dt=1)
 
 # training_targets = training_targets[window_size-1:]
 # testing_targets = testing_targets[window_size-1:]
@@ -64,100 +65,100 @@ pulse_durations_list = [
 # 2. Convert the clean list of lists into a 2D NumPy array
 pulse_durations = np.array(pulse_durations_list)
 
-def test_3level_base():
-    subspace_index_offset = 1
-    kappa_low = 0
-    kappa_high = .5
-    measurement_ops = custom_pauli(N_dim, subspace_index_offset, subspace_index_offset + 1)[1:]
-    sigma_x_subspace, sigma_y_subpace, sigma_z_subpace= custom_pauli(N_dim, subspace_index_offset, subspace_index_offset + 1)
+# def test_3level_base():
+#     subspace_index_offset = 1
+#     kappa_low = 0
+#     kappa_high = .5
+#     measurement_ops = custom_pauli(N_dim, subspace_index_offset, subspace_index_offset + 1)[1:]
+#     sigma_x_subspace, sigma_y_subpace, sigma_z_subpace= custom_pauli(N_dim, subspace_index_offset, subspace_index_offset + 1)
 
-    destroy_ground = custom_dissipator(N_dim, subspace_index_offset)
-    destroy_excited = custom_dissipator(N_dim, subspace_index_offset + 1)
+#     destroy_ground = custom_dissipator(N_dim, subspace_index_offset)
+#     destroy_excited = custom_dissipator(N_dim, subspace_index_offset + 1)
 
-    c_ops = [
-        np.sqrt(kappa_low) * destroy_ground,
-        np.sqrt(kappa_high) * destroy_excited
-    ]
+#     c_ops = [
+#         np.sqrt(kappa_low) * destroy_ground,
+#         np.sqrt(kappa_high) * destroy_excited
+#     ]
 
-    initial_state = qt.fock(N_dim, 1)
+#     initial_state = qt.fock(N_dim, 1)
 
-    H_int = sigma_x_subspace
+#     H_int = sigma_x_subspace
 
-    QRC_3level= QRC.QRC_Classification(N=N_dim,
-                                                collapse_ops=c_ops,
-                                                H_interaction=H_int,
-                                                measurement_ops=measurement_ops,
-                                                initial_state=initial_state,
-                                                training_data=training_data,
-                                                training_targets=training_targets,
-                                                classification_dim=2,
-                                                subspace_dim=2,
-                                                subspace_start_index=subspace_index_offset,
-                                                window_size=window_size
-                                                )
+#     QRC_3level= QRC.QRC_Classification(N=N_dim,
+#                                                 collapse_ops=c_ops,
+#                                                 H_interaction=H_int,
+#                                                 measurement_ops=measurement_ops,
+#                                                 initial_state=initial_state,
+#                                                 training_data=training_data,
+#                                                 training_targets=training_targets,
+#                                                 classification_dim=2,
+#                                                 subspace_dim=2,
+#                                                 subspace_start_index=subspace_index_offset,
+#                                                 window_size=window_size
+#                                                 )
 
-    QRC_3level.train()
+#     QRC_3level.train()
 
-    _, error = QRC_3level.test(test_data=testing_data,test_targets=testing_targets)
+#     _, error = QRC_3level.test(test_data=testing_data,test_targets=testing_targets)
 
-    print(f"Trial run for 3_level with error of {error}")
+#     print(f"Trial run for 3_level with error of {error}")
 
-    QRC_3level.plot(save_dir=os.path.join(os.getcwd(),"test_plots\\3level_base"),
-                    save_fig=True)
-    return
-
-
-def test_3level_upgraded(local_dir, kappa_low = 4,kappa_high = .1):
+#     QRC_3level.plot(save_dir=os.path.join(os.getcwd(),"test_plots\\3level_base"),
+#                     save_fig=True)
+#     return
 
 
-    subspace_index_offset = 1
+# def test_3level_upgraded(local_dir, kappa_low = 4,kappa_high = .1):
 
-    measurement_ops = custom_pauli(N_dim, subspace_index_offset, subspace_index_offset + 1)[1:]
-    sigma_x_subspace, sigma_y_subpace, sigma_z_subpace= custom_pauli(N_dim, subspace_index_offset, subspace_index_offset + 1)
 
-    destroy_ground = custom_dissipator(N_dim, subspace_index_offset)
-    destroy_excited = custom_dissipator(N_dim, subspace_index_offset + 1)
+#     subspace_index_offset = 1
 
-    c_ops = [
-        np.sqrt(kappa_low) * destroy_ground,
-        np.sqrt(kappa_high) * destroy_excited
-    ]
+#     measurement_ops = custom_pauli(N_dim, subspace_index_offset, subspace_index_offset + 1)[1:]
+#     sigma_x_subspace, sigma_y_subpace, sigma_z_subpace= custom_pauli(N_dim, subspace_index_offset, subspace_index_offset + 1)
 
-    initial_state = qt.fock(N_dim, 1)
+#     destroy_ground = custom_dissipator(N_dim, subspace_index_offset)
+#     destroy_excited = custom_dissipator(N_dim, subspace_index_offset + 1)
 
-    H_int = sigma_x_subspace
+#     c_ops = [
+#         np.sqrt(kappa_low) * destroy_ground,
+#         np.sqrt(kappa_high) * destroy_excited
+#     ]
 
-        # 1. Enclose the loop in brackets [] to make it a valid list comprehension first
-    pulse_durations_list = [
-        np.linspace(base_pulse_duration, max_val, window_size) 
-        for max_val in np.linspace(start_pulse_duration, end_pulse_duration, pulse_features)
-    ]
+#     initial_state = qt.fock(N_dim, 1)
 
-    # 2. Convert the clean list of lists into a 2D NumPy array
-    pulse_durations = np.array(pulse_durations_list)
-    QRC_3level= QRC.QRC_Classification_upgraded(N=N_dim,
-                                                collapse_ops=c_ops,
-                                                H_interaction=H_int,
-                                                measurement_ops=measurement_ops,
-                                                initial_state=initial_state,
-                                                training_data=training_data,
-                                                training_targets=training_targets,
-                                                classification_dim=2,
-                                                subspace_dim=2,
-                                                subspace_start_index=subspace_index_offset,
-                                                window_size=window_size,
-                                                pulse_durations=pulse_durations
-                                                )
+#     H_int = sigma_x_subspace
 
-    QRC_3level.train()
+#         # 1. Enclose the loop in brackets [] to make it a valid list comprehension first
+#     pulse_durations_list = [
+#         np.linspace(base_pulse_duration, max_val, window_size) 
+#         for max_val in np.linspace(start_pulse_duration, end_pulse_duration, pulse_features)
+#     ]
 
-    _, error = QRC_3level.test(test_data=testing_data,test_targets=testing_targets)
+#     # 2. Convert the clean list of lists into a 2D NumPy array
+#     pulse_durations = np.array(pulse_durations_list)
+#     QRC_3level= QRC.QRC_Classification_upgraded(N=N_dim,
+#                                                 collapse_ops=c_ops,
+#                                                 H_interaction=H_int,
+#                                                 measurement_ops=measurement_ops,
+#                                                 initial_state=initial_state,
+#                                                 training_data=training_data,
+#                                                 training_targets=training_targets,
+#                                                 classification_dim=2,
+#                                                 subspace_dim=2,
+#                                                 subspace_start_index=subspace_index_offset,
+#                                                 window_size=window_size,
+#                                                 pulse_durations=pulse_durations
+#                                                 )
 
-    print(f"Trial run for 3_level with error of {error}")
+#     QRC_3level.train()
 
-    QRC_3level.plot(save_dir=os.path.join(os.getcwd(),local_dir),
-                    save_fig=True)
-    return
+#     _, error = QRC_3level.test(test_data=testing_data,test_targets=testing_targets)
+
+#     print(f"Trial run for 3_level with error of {error}")
+
+#     QRC_3level.plot(save_dir=os.path.join(os.getcwd(),local_dir),
+#                     save_fig=True)
+#     return
 
 
 def test_fock_upgraded():
@@ -177,12 +178,13 @@ def test_fock_upgraded():
 
 
     QRC_fock = QRC_TimeSeries(
+                            H_base= 0*qt.qeye(N),
                             N = N,    
                             collapse_ops=c_ops,
                             H_interaction=H_int,
                             measurement_ops=measurement_ops,
                             initial_state=initial_state,
-                            washout= 100,
+                            washout= 0,
                             window_size = 20,
     )
 
@@ -199,11 +201,11 @@ def test_fock_upgraded():
     #                                             pulse_durations=pulse_durations
     #                                             )
     
+    f = d//2
+    QRC_fock.train(data= data[:f],
+                   targets=data[delay:f+ delay-window_size])
 
-    QRC_fock.train(data= data[:100],
-                   targets=data[1:100+ delay])
-
-    _, error = QRC_fock.test(test_data=data[100:-delay],test_targets=data[100+delay:])
+    _, error = QRC_fock.test(test_data=data[f:-delay],test_targets=data[f+delay:-window_size])
 
     print(f"Trial run for 3_level with error of {error}")
 
@@ -212,40 +214,42 @@ def test_fock_upgraded():
     
     return
 
-def test_fock():
-    N = 10
-    subspace_dim = 8
-    initial_state = qt.fock(N)
-    measurement_ops = []
-    for i in range(subspace_dim):
-        measurement_ops.append(qt.fock_dm(N,i))
+# def test_fock():
+#     N = 10
+#     subspace_dim = 8
+#     initial_state = qt.fock(N)
+#     measurement_ops = []
+#     for i in range(subspace_dim):
+#         measurement_ops.append(qt.fock_dm(N,i))
 
 
-    H_int = qt.create(N) + qt.destroy(N)
+#     H_int = qt.create(N) + qt.destroy(N)
 
-    c_ops = [qt.destroy(N)]
+#     c_ops = [qt.destroy(N)]
 
-    QRC_fock= QRC.QRC_Classification(N=N,
-                                                collapse_ops=c_ops,
-                                                H_interaction=H_int,
-                                                measurement_ops=measurement_ops,
-                                                initial_state=initial_state,
-                                                training_data=training_data,
-                                                training_targets=training_targets,
-                                                classification_dim=2,
-                                                window_size=window_size,
-                                                )
+    
+
+#     # QRC_fock= QRC.QRC_Classification(N=N,
+#     #                                             collapse_ops=c_ops,
+#     #                                             H_interaction=H_int,
+#     #                                             measurement_ops=measurement_ops,
+#     #                                             initial_state=initial_state,
+#     #                                             training_data=training_data,
+#     #                                             training_targets=training_targets,
+#     #                                             classification_dim=2,
+#     #                                             window_size=window_size,
+#     #                                             )
 
 
     
-    QRC_fock.train()
+#     QRC_fock.train()
 
-    _, error = QRC_fock.test(test_data=testing_data,test_targets=testing_targets)
+#     _, error = QRC_fock.test(test_data=testing_data,test_targets=testing_targets)
 
-    print(f"Trial run for 3_level with error of {error}")
+#     print(f"Trial run for 3_level with error of {error}")
 
-    QRC_fock.plot(save_dir=os.path.join(os.getcwd(),"test_plots\\fock"),
-                    save_fig=True)
+#     QRC_fock.plot(save_dir=os.path.join(os.getcwd(),"test_plots\\fock"),
+#                     save_fig=True)
 
 
 # test_3level_upgraded("test_plots\\3level_upgraded_test_fock",kappa_low=0,kappa_high=3.9)
