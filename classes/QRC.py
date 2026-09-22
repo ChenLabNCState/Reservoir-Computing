@@ -135,16 +135,64 @@ class QRC_TimeSeries(RC_TimeSeries,QRC):
 
     
     def simulate_data(self,time_series,is_train:bool):
-        all_probabilities = []
+        features = []
 
-        for window_index in range(self.wash_out,len(time_series)-(self.window_size + self.delay)):
+        for window_index in range(0,len(time_series)-(self.window_size)):
             window = time_series[window_index:window_index + self.window_size]
-            window_probabilites = self._simulate_window(window)
-            all_probabilities.append(window_probabilites)
+            window_features = self._simulate_window(window)
+            features.append(window_features)
 
-        results = np.array(all_probabilities).T
+        results = np.array(features).T
 
         return  results
+
+    def test(self,test_data,test_targets,open_loop:bool = True) -> tuple[np.ndarray,float]:
+        """
+        Method to test the reservoir with the weight matrix calculated from self.train()
+        method on given testing_data.
+
+        This function does not handle plotting.
+            
+        """
+
+        if self.W is None or self.is_trained is False:
+            raise ValueError(
+                f"Weight matrix has yet to be calculated, First run train method to find weight matrix"
+            )
+        
+        self.test_targets = test_targets[self.washout:]
+
+        if open_loop:
+        
+            testing_results = self.simulate_data(test_data,is_train=False,save_dynamics=False)[:,self.washout:]
+
+            self.predictions = self.W @ testing_results
+
+        if not open_loop:
+
+            #Slice initial window
+            window = test_data[0:self.window_size+self.washout]
+
+            predictions = []
+
+            for i in range(0,len(test_data)-self.window_size):
+
+                #Simulate data for one window
+                testing_result = self.simulate_data(window,is_train=False,save_dynamics=False)[:,self.washout:]
+
+                #Add predicted target for one particular window to predictions
+                prediction = self.W @ testing_result 
+                predictions.append[prediction]
+
+                #Append new results to the window and slice off the first index,
+                np.append(window,prediction)
+                window = window[1:]
+
+            self.predictions = np.array(predictions)
+
+        error = self._calc_nrmse(self.test_targets)
+
+        return (self.predictions,error)
     
 
 @dataclass(kw_only=True)
