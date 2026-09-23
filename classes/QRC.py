@@ -1,8 +1,13 @@
+import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+
 import numpy as np
 import qutip as qt
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
-from classes.RC import RC,RC_TimeSeries,RC_Classification
+from classes.RC import RC_TimeSeries,RC_Classification
 
 @dataclass(kw_only=True)
 class QRC:
@@ -18,8 +23,8 @@ class QRC:
     H_base: qt.Qobj = field(default = None)
     subspace_dim: int = field(default=None)  # Default to None, set in __post_init__
     subspace_start_index:int = field(default=None)
-    pulse_duration:float  = field(default=1,init=True)
-    pulse_time_steps: int = field(default=10,init=True)
+    pulse_duration:float  = field(default=.1,init=True)
+    pulse_time_steps: int = field(default=100,init=True)
     subspace_norm_threshold: float = 1e-9
 
     def __post_init__(self):
@@ -41,7 +46,7 @@ class QRC:
     
     
     def _simulate_window(self,window_data):
-
+        state = self.initial_state
         for pulse_amp in window_data:
 
             tlist = np.linspace(0, self.pulse_duration, self.pulse_time_steps) 
@@ -51,22 +56,22 @@ class QRC:
             will still have precession of other qubits
             
             """
-            result = qt.mesolve(self.H_interaction*pulse_amp, self.initial_state, tlist, self.collapse_ops)
+            result = qt.mesolve(self.H_interaction*pulse_amp, state, tlist, self.collapse_ops)
             state = result.states[-1]
         
 
         # Process state through the normalization function. Is valid will be False if the norm is smaller than the threshold
         #******CRITICAL****:  Currently this only works with reservoirs that are not tensor products of multiple qubits
-        if self.subspace_dim < self.N:
-            state, is_valid = self._normalize_subspace(state)
+        # if self.subspace_dim < self.N:
+        #     state, is_valid = self._normalize_subspace(state)
 
-            #Assuming norm is large enough calculate expectation values, otherwise just 
-            if is_valid:
-                features = np.array([qt.expect(op, state=state) for op in self.measurement_ops])
-            else:
-                features = np.zeros(len(self.measurement_ops))
-        else:
-            features= np.array([qt.expect(op, state=state) for op in self.measurement_ops])
+        #     #Assuming norm is large enough calculate expectation values, otherwise just 
+        #     if is_valid:
+        #         features = np.array([qt.expect(op, state=state) for op in self.measurement_ops])
+        #     else:
+        #         features = np.zeros(len(self.measurement_ops))
+        # else:
+        features= np.array([qt.expect(op, state=state) for op in self.measurement_ops])
             
         return features
 
@@ -236,6 +241,7 @@ class QRC_Classification_upgraded(QRC_Classification):
 
     def _simulate_window(self, window_data,save_dynamics:bool):
         features = []
+        state = self.initial_state
         for j,pulse_duration_list in enumerate(self.pulse_durations):
             for i,pulse_amp in enumerate(window_data):
 
@@ -248,7 +254,7 @@ class QRC_Classification_upgraded(QRC_Classification):
                 
                 """
 
-                result = qt.mesolve(self.H_interaction*pulse_amp, self.initial_state, tlist, self.collapse_ops)
+                result = qt.mesolve(self.H_interaction*pulse_amp, state, tlist, self.collapse_ops)
                 if save_dynamics:
                     self.dynamics_data.append([[qt.expect(op, state=state) for op in self.measurement_ops] for state in result.states])
                 state = result.states[-1]
@@ -256,16 +262,16 @@ class QRC_Classification_upgraded(QRC_Classification):
 
             # Process state through the normalization function. Is valid will be False if the norm is smaller than the threshold
             #******CRITICAL****:  Currently this only works with reservoirs that are not tensor products of multiple qubits
-            if self.subspace_dim < self.N:
-                state, is_valid = self._normalize_subspace(state)
+            # if self.subspace_dim < self.N:
+            #     state, is_valid = self._normalize_subspace(state)
 
-                #Assuming norm is large enough calculate expectation values, otherwise just 
-                if is_valid:
-                    features.append(np.array([qt.expect(op, state=state) for op in self.measurement_ops]))
-                else:
-                    features.append(np.zeros(len(self.measurement_ops)))
-            else:
-                features.append(np.array([qt.expect(op, state=state) for op in self.measurement_ops]))
+            #     #Assuming norm is large enough calculate expectation values, otherwise just 
+            #     if is_valid:
+            #         features.append(np.array([qt.expect(op, state=state) for op in self.measurement_ops]))
+            #     else:
+            #         features.append(np.zeros(len(self.measurement_ops)))
+            # else:
+            features.append(np.array([qt.expect(op, state=state) for op in self.measurement_ops]))
         
         features = np.asarray(features).ravel()
 

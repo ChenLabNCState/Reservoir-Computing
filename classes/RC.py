@@ -1,7 +1,6 @@
 import os
 import sys
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from matplotlib.pylab import permutation
 import numpy as np
@@ -25,8 +24,8 @@ class reg_type(Enum):
     PINV = 1
     RIDGE = 2
 
-def _regression(data,targets,type:reg_type = reg_type.PINV,ridge:float = 1e-3):
-    match reg_type:
+def _regression(data,targets,inv_type:reg_type = reg_type.PINV,ridge:float = 1e-3):
+    match inv_type:
         case reg_type.PINV:
             inverse_train = np.linalg.pinv(data)
 
@@ -68,7 +67,7 @@ class RC(ABC):
         #Exclude washout period in results
         training_results = self.simulate_data(
             data,
-            save_dynamics=save_dynamics,
+            # save_dynamics=save_dynamics,
             is_train=True
         )[:,self.washout:]
 
@@ -77,7 +76,7 @@ class RC(ABC):
         inverse_train = _regression(
             data=training_results,
             targets=targets,
-            type=reg_type
+            inv_type=reg_type
         )
 
         self.W = targets @ inverse_train
@@ -519,7 +518,7 @@ class RC_TimeSeries(RC):
     
     delay:int = 1
 
-    window_size: int = field(default=20, init=False)
+    window_size: int = field(default=20, init=True)
 
     def __post_init__(self):
 

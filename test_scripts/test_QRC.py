@@ -1,13 +1,15 @@
 import sys
+import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+
 
 import qutip as qt
 from classes.QRC import QRC
+from classes.QRC import QRC_TimeSeries
+from utilities.generate import generate_mackey_glass
 import numpy as np
 import matplotlib.pyplot as plt
-import random
-import os
-from classes.RC import generate_mixed_amplitude_sequence
 
 def custom_pauli(N, state_a_index, state_b_index):
     sx_mat = np.zeros((N, N), dtype=complex)
@@ -39,14 +41,14 @@ pulse_time_steps = 50
 window_size = 5
 #3level system
 
-training_data,training_targets = QRC.generate_mixed_amplitude_sequence(noise_level=0.0)
+# training_data,training_targets = QRC.generate_mixed_amplitude_sequence(noise_level=0.0)
 
-testing_data,testing_targets = QRC.generate_mixed_amplitude_sequence(noise_level=0)
+# testing_data,testing_targets = QRC.generate_mixed_amplitude_sequence(noise_level=0)
 
-training_targets = training_targets[window_size-1:]
-testing_targets = testing_targets[window_size-1:]
+data = generate_mackey_glass(200)
 
-
+# training_targets = training_targets[window_size-1:]
+# testing_targets = testing_targets[window_size-1:]
 
 start_pulse_duration = 1
 end_pulse_duration= 11
@@ -159,11 +161,12 @@ def test_3level_upgraded(local_dir, kappa_low = 4,kappa_high = .1):
 
 
 def test_fock_upgraded():
-    N = 2
-    subspace_dim = 2
+    N = 10
+    subspace_dim = 8
     initial_state = qt.fock(N)
     measurement_ops = []
-    kappa = 1
+    kappa = 2.7
+    delay = 1
     for i in range(subspace_dim):
         measurement_ops.append(qt.fock_dm(N,i))
 
@@ -172,25 +175,39 @@ def test_fock_upgraded():
 
     c_ops = [kappa*qt.destroy(N)]
 
-    QRC_fock= QRC.QRC_Classification_upgraded(N=N,
-                                                collapse_ops=c_ops,
-                                                H_interaction=H_int,
-                                                measurement_ops=measurement_ops,
-                                                initial_state=initial_state,
-                                                training_data=training_data,
-                                                training_targets=training_targets,
-                                                classification_dim=2,
-                                                window_size=window_size,
-                                                pulse_durations=pulse_durations
-                                                )
-    
-    QRC_fock.train()
 
-    _, error = QRC_fock.test(test_data=testing_data,test_targets=testing_targets)
+    QRC_fock = QRC_TimeSeries(
+                            N = N,    
+                            collapse_ops=c_ops,
+                            H_interaction=H_int,
+                            measurement_ops=measurement_ops,
+                            initial_state=initial_state,
+                            washout= 100,
+                            window_size = 20,
+    )
+
+
+    # QRC_fock= QRC.QRC_Classification_upgraded(N=N,
+    #                                             collapse_ops=c_ops,
+    #                                             H_interaction=H_int,
+    #                                             measurement_ops=measurement_ops,
+    #                                             initial_state=initial_state,
+    #                                             training_data=training_data,
+    #                                             training_targets=training_targets,
+    #                                             classification_dim=2,
+    #                                             window_size=window_size,
+    #                                             pulse_durations=pulse_durations
+    #                                             )
+    
+
+    QRC_fock.train(data= data[:100],
+                   targets=data[1:100+ delay])
+
+    _, error = QRC_fock.test(test_data=data[100:-delay],test_targets=data[100+delay:])
 
     print(f"Trial run for 3_level with error of {error}")
 
-    QRC_fock.plot(save_dir=os.path.join(os.getcwd(),"test_plots\\fock_upgraded"),
+    QRC_fock.plot(save_dir=os.path.join(os.getcwd(),"test_plots\\fock_test"),
                     save_fig=True)
     
     return
@@ -218,6 +235,8 @@ def test_fock():
                                                 classification_dim=2,
                                                 window_size=window_size,
                                                 )
+
+
     
     QRC_fock.train()
 
@@ -229,9 +248,9 @@ def test_fock():
                     save_fig=True)
 
 
-test_3level_upgraded("test_plots\\3level_upgraded_test_fock",kappa_low=0,kappa_high=3.9)
-test_3level_upgraded("test_plots\\3level_upgraded_test_fock2",kappa_low=0)
-test_3level_upgraded("test_plots\\3level_upgraded_test_non_hermitian")
+# test_3level_upgraded("test_plots\\3level_upgraded_test_fock",kappa_low=0,kappa_high=3.9)
+# test_3level_upgraded("test_plots\\3level_upgraded_test_fock2",kappa_low=0)
+# test_3level_upgraded("test_plots\\3level_upgraded_test_non_hermitian")
 
 
-
+test_fock_upgraded()
