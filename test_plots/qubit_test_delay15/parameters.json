@@ -1,0 +1,26 @@
+{
+    "washout": 0,
+    "window_size": 20,
+    "is_trained": true,
+    "dynamics_data": [],
+    "predictions": "Big Array with shape = (215,)",
+    "test_targets": "Big Array with shape = (215,)",
+    "W": "Big Array with shape = (3,)",
+    "N": 2,
+    "H_interaction": "<QuTiP Qobj: dims=[[2], [2]], type=oper>",
+    "collapse_ops": [
+        "<QuTiP Qobj: dims=[[2], [2]], type=oper>"
+    ],
+    "measurement_ops": [
+        "<QuTiP Qobj: dims=[[2], [2]], type=oper>",
+        "<QuTiP Qobj: dims=[[2], [2]], type=oper>",
+        "<QuTiP Qobj: dims=[[2], [2]], type=oper>"
+    ],
+    "initial_state": "<QuTiP Qobj: dims=[[2], [1]], type=ket>",
+    "H_base": "<QuTiP Qobj: dims=[[2], [2]], type=oper>",
+    "subspace_dim": 0,
+    "pulse_duration": 0.1,
+    "pulse_time_steps": 100,
+    "subspace_norm_threshold": 1e-09,
+    "delay": 15
+}

@@ -15,31 +15,20 @@ from scipy.special import eval_legendre
 from itertools import combinations
 
 from utilities.save import json_converter
+from utilities.inversion import invert,reg_type
 
 class IPC_type(Enum):
     UNIFORM = 1
     NORMAL = 2
 
-class reg_type(Enum):
-    PINV = 1
-    RIDGE = 2
 
-def _regression(data,targets,inv_type:reg_type = reg_type.PINV,ridge:float = 1e-3):
-    match inv_type:
-        case reg_type.PINV:
-            inverse_train = np.linalg.pinv(data)
 
-        case reg_type.RIDGE:
-            inverse_train = np.linalg.inv(data.T @ data 
-                                        + ridge * np.eye(data.shape[1]) ) @ data.T @ targets
-
-    return inverse_train
 
 @dataclass(kw_only=True)
 class RC(ABC):
     #Number of elements to exclude when proceessing data. 
     #Ie simulate data returns (data_size) elements and then conducts training/testing on (data_size-washout)    
-    washout: int 
+    washout: int
     window_size: int = field(default=20, init=True)
    
     #State variables
@@ -73,9 +62,8 @@ class RC(ABC):
 
         #Different inverse calculations
         
-        inverse_train = _regression(
+        inverse_train = invert(
             data=training_results,
-            targets=targets,
             inv_type=reg_type
         )
 
@@ -101,7 +89,9 @@ class RC(ABC):
         
         self.test_targets = test_targets[self.washout:]
         
-        testing_results = self.simulate_data(test_data,is_train=False,save_dynamics=False)[:,self.washout:]
+        testing_results = self.simulate_data(test_data,
+                                             is_train=False,
+                                             save_dynamics=False)[:,self.washout:]
 
         self.predictions = self.W @ testing_results
 
@@ -120,7 +110,7 @@ class RC(ABC):
         pass
 
     #Method to plot predictions vs test targets and save to a directtory
-    def plot(self, save_dir=None, save_fig=False, filename="prediction_plot.png"):
+    def plot(self, error,save_dir=None, save_fig=False, filename="prediction_plot.png"):
         """
         Plotting method that will plot and save self.testing_targets and self.predictions.
         By default these values are set by the self.train() method and will be changed if self.train()
@@ -146,7 +136,7 @@ class RC(ABC):
             raise ValueError("test_targets is None and cannot be plotted")
         
         plt.legend()
-        plt.title("Predictions vs Targets")
+        plt.title(f"Predictions vs Targets (NRMSE:{error:.4f})")
         plt.xlabel("Time")
         plt.ylabel("Amplitude")
         plt.grid(alpha=0.3)
@@ -262,7 +252,7 @@ class RC(ABC):
 
         # One joint regression — correctly bounds total IPC ≤ K
 
-        W_opt = _regression(X, Z)
+        W_opt = invert(X)
         Z_hat = X @ W_opt  # (T_eff, N)
 
         capacity_array = np.zeros(d_max)

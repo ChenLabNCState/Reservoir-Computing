@@ -53,5 +53,7 @@ def generate_mackey_glass(length, dt=0.1, tau=17, beta=0.2, gamma=0.1, n=10):
         history = np.roll(history, -1)
         history[-1] = x
     series = np.array(series)
-    return series / (series.max())
+    return series / (series.max()) + 0.5
+
+
 
