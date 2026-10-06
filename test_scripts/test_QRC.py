@@ -165,7 +165,7 @@ def custom_dissipator(N, destroy_index):
 def create_qubit(delay=1,washout=0,window_size = 20,kappa=2.7,pulse_duration =.1, pulse_time_steps = 100):
     N = 2
     initial_state = qt.basis(2,0)
-    measurement_ops = [qt.sigmaz(),qt.sigmay(),qt.qeye(2)]
+    measurement_ops = [qt.sigmaz(),qt.sigmay()]
     kappa = kappa
     
 
@@ -302,6 +302,7 @@ def run_delay_sweep(delay_min,delay_max,step=5,kappa = 2.7):
     plt.savefig(os.path.join(os.path.curdir,"delay_error.png"))
 
 
+
 run_delay_sweep(
     delay_min=1,
     delay_max=21,
@@ -310,3 +311,7 @@ run_delay_sweep(
 
 test_dynamics(delay=1,kappa=.5)
 
+qubit = create_qubit()
+fock = create_fock()
+
+qubit.evaluate_IPC()

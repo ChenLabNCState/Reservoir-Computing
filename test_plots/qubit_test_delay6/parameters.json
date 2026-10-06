@@ -5,14 +5,13 @@
     "dynamics_data": [],
     "predictions": "Big Array with shape = (224,)",
     "test_targets": "Big Array with shape = (224,)",
-    "W": "Big Array with shape = (3,)",
+    "W": "Big Array with shape = (2,)",
     "N": 2,
     "H_interaction": "<QuTiP Qobj: dims=[[2], [2]], type=oper>",
     "collapse_ops": [
         "<QuTiP Qobj: dims=[[2], [2]], type=oper>"
     ],
     "measurement_ops": [
-        "<QuTiP Qobj: dims=[[2], [2]], type=oper>",
         "<QuTiP Qobj: dims=[[2], [2]], type=oper>",
         "<QuTiP Qobj: dims=[[2], [2]], type=oper>"
     ],
