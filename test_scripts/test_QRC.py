@@ -4,162 +4,21 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 
 
+import json
+from dataclasses import asdict
+
 import qutip as qt
 from classes.QRC import QRC
-from classes.QRC import QRC_TimeSeries
+from classes.RC import RC, RCTimeSeries, plot_ipc_by_degree
+from classes.QRC import QRCTimeSeries
+from classes.RC import LinearRegTimeSeries
 from utilities.generate import generate_mackey_glass
+from utilities.save import json_converter
 import numpy as np
 import matplotlib.pyplot as plt
 
-def custom_pauli(N, state_a_index, state_b_index):
-    sx_mat = np.zeros((N, N), dtype=complex)
-    sy_mat = np.zeros((N, N), dtype=complex)
-    sz_mat = np.zeros((N, N), dtype=complex)
-
-    sx_mat[state_a_index, state_b_index] = 1.0
-    sx_mat[state_b_index, state_a_index] = 1.0
-
-    sy_mat[state_a_index, state_b_index] = -1j
-    sy_mat[state_b_index, state_a_index] = 1j
-
-    sz_mat[state_a_index, state_a_index] = 1.0
-    sz_mat[state_b_index, state_b_index] = -1.0
-
-    return [qt.Qobj(sx_mat), qt.Qobj(sy_mat), qt.Qobj(sz_mat)]
-
-def custom_dissipator(N, destroy_index):
-    destroy = np.zeros((N, N), dtype=complex)
-    if destroy_index >= 1:
-        destroy[destroy_index-1, destroy_index] = 1
-        destroy = qt.Qobj(destroy)
-    return destroy
-
-# #Run a test with 3 level system and compare to Fock state
-# N_dim = 3
-# pulse_duration = 5
-# pulse_time_steps = 50
-# window_size = 20
-# d = 500
-#3level system
-
-# training_data,training_targets = QRC.generate_mixed_amplitude_sequence(noise_level=0.0)
-
-# testing_data,testing_targets = QRC.generate_mixed_amplitude_sequence(noise_level=0)
-
-
-
-# training_targets = training_targets[window_size-1:]
-# testing_targets = testing_targets[window_size-1:]
-
-# start_pulse_duration = 1
-# end_pulse_duration= 11
-# pulse_features = 5
-# base_pulse_duration = 5
-
-# # 1. Enclose the loop in brackets [] to make it a valid list comprehension first
-# pulse_durations_list = [
-#     np.linspace(base_pulse_duration, max_val, window_size) 
-#     for max_val in np.linspace(start_pulse_duration, end_pulse_duration, pulse_features)
-# ]
-
-# # 2. Convert the clean list of lists into a 2D NumPy array
-# pulse_durations = np.array(pulse_durations_list)
-
-# def test_3level_base():
-#     subspace_index_offset = 1
-#     kappa_low = 0
-#     kappa_high = .5
-#     measurement_ops = custom_pauli(N_dim, subspace_index_offset, subspace_index_offset + 1)[1:]
-#     sigma_x_subspace, sigma_y_subpace, sigma_z_subpace= custom_pauli(N_dim, subspace_index_offset, subspace_index_offset + 1)
-
-#     destroy_ground = custom_dissipator(N_dim, subspace_index_offset)
-#     destroy_excited = custom_dissipator(N_dim, subspace_index_offset + 1)
-
-#     c_ops = [
-#         np.sqrt(kappa_low) * destroy_ground,
-#         np.sqrt(kappa_high) * destroy_excited
-#     ]
-
-#     initial_state = qt.fock(N_dim, 1)
-
-#     H_int = sigma_x_subspace
-
-#     QRC_3level= QRC.QRC_Classification(N=N_dim,
-#                                                 collapse_ops=c_ops,
-#                                                 H_interaction=H_int,
-#                                                 measurement_ops=measurement_ops,
-#                                                 initial_state=initial_state,
-#                                                 training_data=training_data,
-#                                                 training_targets=training_targets,
-#                                                 classification_dim=2,
-#                                                 subspace_dim=2,
-#                                                 subspace_start_index=subspace_index_offset,
-#                                                 window_size=window_size
-#                                                 )
-
-#     QRC_3level.train()
-
-#     _, error = QRC_3level.test(test_data=testing_data,test_targets=testing_targets)
-
-#     print(f"Trial run for 3_level with error of {error}")
-
-#     QRC_3level.plot(save_dir=os.path.join(os.getcwd(),"test_plots\\3level_base"),
-#                     save_fig=True)
-#     return
-
-
-# def test_3level_upgraded(local_dir, kappa_low = 4,kappa_high = .1):
-
-
-#     subspace_index_offset = 1
-
-#     measurement_ops = custom_pauli(N_dim, subspace_index_offset, subspace_index_offset + 1)[1:]
-#     sigma_x_subspace, sigma_y_subpace, sigma_z_subpace= custom_pauli(N_dim, subspace_index_offset, subspace_index_offset + 1)
-
-#     destroy_ground = custom_dissipator(N_dim, subspace_index_offset)
-#     destroy_excited = custom_dissipator(N_dim, subspace_index_offset + 1)
-
-#     c_ops = [
-#         np.sqrt(kappa_low) * destroy_ground,
-#         np.sqrt(kappa_high) * destroy_excited
-#     ]
-
-#     initial_state = qt.fock(N_dim, 1)
-
-#     H_int = sigma_x_subspace
-
-#         # 1. Enclose the loop in brackets [] to make it a valid list comprehension first
-#     pulse_durations_list = [
-#         np.linspace(base_pulse_duration, max_val, window_size) 
-#         for max_val in np.linspace(start_pulse_duration, end_pulse_duration, pulse_features)
-#     ]
-
-#     # 2. Convert the clean list of lists into a 2D NumPy array
-#     pulse_durations = np.array(pulse_durations_list)
-#     QRC_3level= QRC.QRC_Classification_upgraded(N=N_dim,
-#                                                 collapse_ops=c_ops,
-#                                                 H_interaction=H_int,
-#                                                 measurement_ops=measurement_ops,
-#                                                 initial_state=initial_state,
-#                                                 training_data=training_data,
-#                                                 training_targets=training_targets,
-#                                                 classification_dim=2,
-#                                                 subspace_dim=2,
-#                                                 subspace_start_index=subspace_index_offset,
-#                                                 window_size=window_size,
-#                                                 pulse_durations=pulse_durations
-#                                                 )
-
-#     QRC_3level.train()
-
-#     _, error = QRC_3level.test(test_data=testing_data,test_targets=testing_targets)
-
-#     print(f"Trial run for 3_level with error of {error}")
-
-#     QRC_3level.plot(save_dir=os.path.join(os.getcwd(),local_dir),
-#                     save_fig=True)
-#     return
-
+#Repo-level test_plots folder, independent of where the script is run from
+PLOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "test_plots"))
 
 
 def create_qubit(delay=1,washout=0,window_size = 20,kappa=2.7,pulse_duration =.1, pulse_time_steps = 100):
@@ -175,7 +34,7 @@ def create_qubit(delay=1,washout=0,window_size = 20,kappa=2.7,pulse_duration =.1
     c_ops = [np.sqrt(kappa)*qt.destroy(N)]
 
 
-    QRC_qubit = QRC_TimeSeries(
+    QRC_qubit = QRCTimeSeries(
                             H_base= 0*qt.qeye(N),
                             N = N,    
                             collapse_ops=c_ops,
@@ -203,10 +62,10 @@ def create_fock(N=10,Subspace_dim = 8,delay=1,washout=0,window_size = 20,kappa=2
 
     H_int = qt.create(N) + qt.destroy(N)
 
-    c_ops = [kappa*qt.destroy(N)]
+    c_ops = [np.sqrt(kappa)*qt.destroy(N)]
 
 
-    QRC_fock = QRC_TimeSeries(
+    QRC_fock = QRCTimeSeries(
                                 H_base= 0*qt.qeye(N),
                                 N = N,    
                                 collapse_ops=c_ops,
@@ -222,96 +81,108 @@ def create_fock(N=10,Subspace_dim = 8,delay=1,washout=0,window_size = 20,kappa=2
 
     return QRC_fock
 
-def test_qubit(data,delay=1,kappa:float = 2.7):
-    
-    QRC_qubit = create_qubit(delay=delay,kappa=kappa)
+def create_linear(delay=1,washout=0,window_size = 20):
+    return LinearRegTimeSeries(washout=washout, window_size=window_size, delay=delay)
 
+
+def train_and_test(reservoir:RCTimeSeries, data, name:str, save_plot:bool = False):
+    """
+    Train on the first 3/4 of data and test on the rest.
+    Targets are left as None, so each model predicts data[t + delay] (time-aligned convention).
+    Returns the trained reservoir (holding predictions and test_targets) and its NRMSE.
+    """
     f = (3*len(data))//4
     training_data = data[:f]
     testing_data = data[f:]
 
-    QRC_qubit.train(data= training_data)
+    reservoir.train(data=training_data)
 
-    _, error = QRC_qubit.test(test_data = testing_data)
+    _, error = reservoir.test(test_data=testing_data)
 
-    print(f"Trial run for qubit with error of {error}")
+    print(f"Trial run for {name} with error of {error}")
 
-    QRC_qubit.plot(save_dir=os.path.join(os.path.abspath("/home/grant/Documents/Development/Reservoir-Computing/test_plots"),f"qubit_test_delay{delay}"),
-                   error = error,
-                    save_fig=True)
+    if save_plot:
+        reservoir.plot(save_dir=os.path.join(PLOT_DIR, f"{name}_test_delay{reservoir.delay}"),
+                       error=error,
+                       save_fig=True)
 
-    return error
-        
+    return reservoir, error
+
+def test_qubit(data,delay=1,kappa:float = 2.7):
+    return train_and_test(create_qubit(delay=delay,kappa=kappa), data, "qubit")
 
 def test_fock(data,delay=1,kappa:float = 2.7):
-    
-    QRC_fock = create_fock(delay=delay,kappa=kappa)
+    return train_and_test(create_fock(delay=delay,kappa=kappa), data, "fock")
 
-    f = (3*len(data))//4
-    training_data = data[:f]
-    testing_data = data[f:]
-    
-    QRC_fock.train(data= training_data)
-
-    _, error = QRC_fock.test(test_data = testing_data)
-
-    print(f"Trial run for cavity with error of {error}")
-
-    QRC_fock.plot(save_dir=os.path.join(os.path.abspath("/home/grant/Documents/Development/Reservoir-Computing/test_plots"),f"fock_test_delay{delay}"),
-                   error = error,
-                    save_fig=True)
-
-    return error
-        
-
-array_size = 1000
-data = generate_mackey_glass(array_size,tau=17,dt=1)
+def test_linear(data,delay=1):
+    return train_and_test(create_linear(delay=delay), data, "linear")
 
 
+def multi_reservoir_plot(reservoirs:list[RCTimeSeries], labels:list[str], save_dir=None, save_fig=False, filename="comparison_plot.png"):
+        """
+        Plotting multiple reservoirs' predictions against the same target data.
 
-def test_dynamics(delay = 1,kappa = 2.7):
+        Each reservoir must already have been tested on the same test data, and their aligned
+        test_targets must match (same window_size, washout and delay), so they share one x-axis.
+        """
+        if len(labels) != len(reservoirs):
+            raise ValueError(f"Got {len(labels)} labels for {len(reservoirs)} reservoirs")
 
-    f = (3*len(data))//4
-    training_data = data[:f]
+        for reservoir, label in zip(reservoirs, labels):
+            # Guard clause in case predictions haven't been generated yet
+            if reservoir.predictions is None:
+                raise ValueError(f"No predictions found for {label}. Run test() first.")
+
+        targets = np.asarray(reservoirs[0].test_targets)
+        for reservoir, label in zip(reservoirs[1:], labels[1:]):
+            if not np.array_equal(np.asarray(reservoir.test_targets), targets):
+                raise ValueError(f"{label} was tested on different targets than {labels[0]} "
+                                 "(check test data, window_size, washout and delay)")
+
+        x_values = np.arange(0, len(targets))
+
+        plt.figure(figsize=(10, 4))
+        plt.plot(x_values, targets, "-", color="black", lw=2, label="Targets")
+
+        for reservoir, label in zip(reservoirs, labels):
+            error = reservoir._calc_nrmse(targets)
+            plt.plot(x_values, np.ravel(reservoir.predictions), "-o", markersize=2, label=f"{label} (NRMSE:{error:.4f})")
+
+        plt.legend()
+        plt.title(f"Predictions vs Targets (delay = {reservoirs[0].delay})")
+        plt.xlabel("Time")
+        plt.ylabel("Amplitude")
+        plt.grid(alpha=0.3)
+        plt.tight_layout()
+
+        if save_fig:
+            # If no directory is given, use the current working directory
+            if save_dir is None:
+                save_dir = os.getcwd()
+
+            # Ensure the target directory actually exists to prevent OsErrors
+            os.makedirs(save_dir, exist_ok=True)
+
+            with open(os.path.join(save_dir, "parameters.json"), "w") as f:
+                json.dump({label: asdict(reservoir) for reservoir, label in zip(reservoirs, labels)},
+                          f, indent=4, default=json_converter)
+
+            full_path = os.path.join(save_dir, filename)
+            plt.savefig(full_path)
+
+        plt.close()
 
 
-    qubit = create_qubit(delay=delay,kappa=kappa)
-    fock = create_fock(delay=delay,kappa=kappa)
+if __name__ == "__main__":
+    data = generate_mackey_glass(1000, tau=17, dt=1)
 
-    qubit.plot_window_dynamics(window= training_data[0:qubit.window_size],file_name="qubit_dynamics.png")
-    fock.plot_window_dynamics(window= training_data[0:fock.window_size],file_name="fock_dynamics.png")
+    for delay in [1,2,5,10]:
+        qubit, _ = test_qubit(data, delay=delay)
+        fock, _ = test_fock(data, delay=delay)
+        linear, _ = test_linear(data, delay=delay)
 
+        multi_reservoir_plot([qubit, fock, linear],
+                             labels=["Qubit", "Cavity (Fock)", "Linear regression"],
+                             save_dir=os.path.join(PLOT_DIR, f"comparison_delay{delay}"),
+                             save_fig=True)
 
-def run_delay_sweep(delay_min,delay_max,step=5,kappa = 2.7):
-    delays = []
-    qubit_delay_error = []
-    fock_delay_error = []
-    for delay in np.arange(delay_min,delay_max+1,step=step):
-        delays.append(delay)
-        print(f"Calculating Predictions for delay: {delay}... ")
-        qubit_delay_error.append(test_qubit(data=data,delay=delay,kappa=kappa))
-        fock_delay_error.append(test_fock(data = data,delay = delay,kappa=kappa))
-
-
-    plt.plot(delays,qubit_delay_error,label = 'qubit')
-    plt.plot(delays,fock_delay_error,label = 'cavity')
-    plt.title("Qubit Delay vs Error")
-    plt.legend()
-    plt.ylabel("NRMSE")
-    plt.xlabel("Delay")
-    plt.savefig(os.path.join(os.path.curdir,"delay_error.png"))
-
-
-
-run_delay_sweep(
-    delay_min=1,
-    delay_max=21,
-    step = 1,
-)
-
-test_dynamics(delay=1,kappa=.5)
-
-qubit = create_qubit()
-fock = create_fock()
-
-qubit.evaluate_IPC()

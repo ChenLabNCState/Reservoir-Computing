@@ -15,9 +15,9 @@ from scipy.special import eval_legendre
 from itertools import combinations
 
 from utilities.save import json_converter
-from utilities.inversion import invert,reg_type
+from utilities.inversion import invert,RegType
 
-class IPC_type(Enum):
+class IPCType(Enum):
     UNIFORM = 1
     NORMAL = 2
 
@@ -30,7 +30,9 @@ class RC(ABC):
     #Ie simulate data returns (data_size) elements and then conducts training/testing on (data_size-washout)    
     washout: int
     window_size: int = field(default=20, init=True)
-   
+    #Steps between the newest input a feature column has seen and the target it is trained on
+    delay: int = 0
+
     #State variables
     is_trained: bool = field(default=False, init=False)
 
@@ -39,66 +41,100 @@ class RC(ABC):
     predictions: np.ndarray | None = field(default=None, init=False)
     test_targets: np.ndarray | None = field(default=None, init=False)
     W: np.ndarray | None = field(default=None, init=False)
+
     
     def __post_init__(self):
 
         return
 
+    def _align(self, features: np.ndarray, targets: np.ndarray, data_length: int) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Pair feature column i (newest input data[i + output_offset]) with target targets[i + output_offset + delay],
+        dropping the washout columns and the final columns whose target runs past the end of the data.
+
+        targets must be time-aligned with the input data: same length (last axis), targets[t] is the desired
+        output at time t. Do not pre-trim targets for the window, washout or delay; that is done here.
+        """
+        targets = np.asarray(targets)
+        if targets.shape[-1] != data_length:
+            raise ValueError(
+                f"targets must be time-aligned with data (same length): got {targets.shape[-1]} targets "
+                f"for {data_length} data points. Do not pre-trim targets for window_size, washout or delay."
+            )
+        if features.shape[1] != data_length - self.output_offset:
+            raise RuntimeError(
+                f"simulate_data returned {features.shape[1]} columns for {data_length} data points, "
+                f"expected {data_length - self.output_offset} (output_offset = {self.output_offset})"
+            )
+
+        features = features[:, self.washout:features.shape[1] - self.delay]
+        targets = targets[..., self.output_offset + self.delay + self.washout:]
+        return features, targets
+
     def train(self,data:np.ndarray,
-              targets: np.ndarray,
-              reg_type:reg_type = reg_type.PINV,
+              targets: np.ndarray | None = None,
+              reg_type:RegType = RegType.RIDGE,
               save_dynamics:bool = False) -> np.ndarray:
         """
         Overarching method that will train the model with the data given and update the weight matrix
-        
+
+        targets must be time-aligned with data (same length, targets[t] is the desired output at time t).
+        If no targets are given, the data itself is used, so the model learns to predict data[t + delay].
+        delay is applied to explicit targets as well.
         """
 
+        #If no explicit targets are given, assume they are the input data shifted by the delay given
+        if targets is None:
+            targets = data
 
-        #Exclude washout period in results
-        training_results = self.simulate_data(
-            data,
-            is_train=True,
-        )[:,self.washout:]
+        training_results, targets = self._align(
+            self.simulate_data(data, is_train=True), targets, len(data)
+        )
 
         #Different inverse calculations
-        
         inverse_train = invert(
             data=training_results,
             inv_type=reg_type
         )
 
         self.W = targets @ inverse_train
-        
+
         self.is_trained = True
 
         return self.W
 
-    def test(self,test_data,test_targets) -> tuple[np.ndarray,float]:
+    def test(self, test_data, test_targets=None) -> tuple[np.ndarray, float]:
         """
         Method to test the reservoir with the weight matrix calculated from self.train()
         method on given testing_data.
 
+        test_targets follow the same time-aligned convention as train(); if omitted, test_data is used.
         This function does not handle plotting.
-          
         """
 
-        if self.W is None or self.is_trained is False:
-            raise ValueError(
-                f"Weight matrix has yet to be calculated, First run train method to find weight matrix"
-            )
-        
-        self.test_targets = test_targets[self.washout:]
-        
-        testing_results = self.simulate_data(test_data,
-                                             is_train=False,
-                                             save_dynamics=False)[:,self.washout:]
+        if self.W is None or not self.is_trained:
+            raise ValueError("Weight matrix has yet to be calculated please run self.train() first")
 
-        self.predictions = self.W @ testing_results
+        if test_targets is None:
+            test_targets = test_data
+
+        testing_results, self.test_targets = self._align(
+            self.simulate_data(test_data, is_train=False), test_targets, len(test_data)
+        )
+
+        self.predictions = np.asarray(self.W @ testing_results)
 
         error = self._calc_nrmse(self.test_targets)
 
-        return (self.predictions,error)
+        return self.predictions, error
+
+
     
+    @property
+    def output_offset(self) -> int:
+        """Index of the last input seen by the first column returned from simulate_data."""
+        return 0
+
     @abstractmethod
     def simulate_data(self,data,is_train:bool,save_dynamics:bool=False) -> np.ndarray:
         """
@@ -122,13 +158,13 @@ class RC(ABC):
         if self.predictions is None:
             raise ValueError("No predictions found to plot. Run test() first.")
 
-        # FIX 1: Changed np.range to np.arange
+      
         x_values = np.arange(0, len(self.predictions))
         
         plt.figure(figsize=(10, 4))
         
         plt.plot(x_values, self.predictions, "-o",markersize=2, color="orange", label="Predictions")
-        # FIX 3: Updated self.test_targets to self.testing_targets to match your dataclass
+
         
         if self.test_targets is not None:
             plt.plot(x_values, self.test_targets, "-o",color="black",markersize =2, lw=2, label="Targets")
@@ -142,9 +178,9 @@ class RC(ABC):
         plt.grid(alpha=0.3)
         plt.tight_layout()
         
-        # FIX 2: Check 'save_fig' instead of the function 'plt.savefig'
+       
         if save_fig:
-            # THE CORE FIX: If no directory is given, use the current working directory
+            
             if save_dir is None:
                 save_dir = os.getcwd()
                 
@@ -190,7 +226,6 @@ class RC(ABC):
     
         return rmse / target_std
 
-
     def evaluate_IPC(self, 
                     data_size: int = 5000, 
                     d_max: int = 4,
@@ -217,7 +252,7 @@ class RC(ABC):
         u = rng.uniform(-1.0, 1.0, size=data_size)
 
         #Simulate raw data into reservoir
-        raw = self.simulate_data(u, is_train=False, save_dynamics=False)
+        raw = self.simulate_data(u, is_train=False)
 
 
         clean_data = np.asarray(raw)[:, self.washout:]  # (K, T_eff)
@@ -228,7 +263,13 @@ class RC(ABC):
         noise_floor = K / T_eff
         effective_threshold = max(threshold, 3.0 * noise_floor)
 
-        max_delay = min(tau_max, self.washout)
+        # Input index of the last sample seen by the first post-washout output
+        start = self.output_offset + self.washout
+        if start < tau_max:
+            raise ValueError(
+                f"washout + output_offset ({start}) must be >= tau_max ({tau_max}) to build lagged targets"
+            )
+        max_delay = tau_max
         targets, degree_groups = [], []
 
         for D in range(1, d_max + 1):
@@ -243,7 +284,7 @@ class RC(ABC):
                     for delay_tuple in delays_list:
                         z = np.ones(T_eff)
                         for d, tau in zip(perm, delay_tuple):
-                            u_lag = u[self.washout - tau : data_size - tau]
+                            u_lag = u[start - tau : start - tau + T_eff]
                             z *= eval_legendre_norm(d, u_lag)
                         targets.append(z)
                         degree_groups.append(D)
@@ -252,8 +293,8 @@ class RC(ABC):
 
         # One joint regression — correctly bounds total IPC ≤ K
 
-        W_opt = invert(X)
-        Z_hat = X @ W_opt  # (T_eff, N)
+        W_opt = invert(X) @ Z  # (K, N)
+        Z_hat = X @ W_opt      # (T_eff, N)
 
         capacity_array = np.zeros(d_max)
         for i, D in enumerate(degree_groups):
@@ -325,7 +366,11 @@ def plot_ipc_by_degree(capacities_list, total_capacity:float, figsize=(10, 4.5),
 
 
 @dataclass(kw_only=True)
-class RC_Classification(RC):
+class RCClassification(RC):
+
+    """
+    This Class needs some work! 
+    """
 
     classification_dim:int
 
@@ -337,7 +382,11 @@ class RC_Classification(RC):
 
 
 @dataclass(kw_only=True)
-class RC_TimeSeries(RC):
+class RCTimeSeries(RC):
+
+    """
+    This class for all intensive purposes is just RC but with a modified option of closed loop testing.
+    """
     
     delay:int = 1
 
@@ -345,11 +394,78 @@ class RC_TimeSeries(RC):
 
     def __post_init__(self):
 
-        
+
         # self.training_targets = self.training_data[self.wash_out:]
         # self.training_target_length = len(self.training_targets)
         # self.training_data = self.training_data[:len(self.training_data)-self.window_size-self.delay]
         # CRITICAL: Pass the execution to the next class in the MRO chain!
         if hasattr(super(), '__post_init__'):
             super().__post_init__()
+
+    def test(self, test_data, test_targets=None, open_loop: bool = True) -> tuple[np.ndarray, float]:
+        """
+        open_loop=True: every prediction is made from true test inputs (see RC.test).
+        open_loop=False: autonomous one-step prediction, each prediction is fed back in as the next input.
+        Closed loop predicts the input series itself, so it requires delay == 1 and no explicit test_targets.
+        """
+        if open_loop:
+            return super().test(test_data, test_targets)
+
+        if self.W is None or not self.is_trained:
+            raise ValueError("Weight matrix has yet to be calculated please run self.train() first")
+        if test_targets is not None:
+            raise ValueError("Closed-loop prediction feeds predictions back as inputs, so test_targets must be None")
+        if self.delay != 1:
+            raise ValueError(f"Closed-loop prediction requires delay == 1, got delay = {self.delay}")
+
+        test_data = np.asarray(test_data)
+        #Index of the newest input seen by the first post-washout feature column
+        start = self.output_offset + self.washout
+        self.test_targets = test_data[start + 1:]
+
+        history = test_data[:start + 1]
+        preds = []
+        for _ in range(len(self.test_targets)):
+            #Newest column's features predict the next value
+            prediction = self.W @ self.simulate_data(history, is_train=False)[:, -1]
+            preds.append(prediction)
+            history = np.append(history, prediction)[1:]   # np.append doesn't mutate in place
+
+        self.predictions = np.array(preds)
+        error = self._calc_nrmse(self.test_targets)
+        return self.predictions, error
+
+
+
+@dataclass(kw_only=True)
+class LinearRegTimeSeries(RCTimeSeries):
+    """
+    Baseline with no reservoir: the features are the raw input window itself,
+    so train() fits ordinary linear regression on the last window_size inputs.
+
+    Uses the same windowing as QRC, so the two can be compared on identical data.
+    """
+
+    #Append a constant row so the fit has an intercept
+    use_bias: bool = True
+
+    @property
+    def output_offset(self) -> int:
+        #Column i comes from window u[i : i+window_size], so its last input is u[i+window_size-1]
+        return self.window_size - 1
+
     
+    def simulate_data(self, data, is_train: bool, save_dynamics: bool = False) -> np.ndarray:
+        data = np.asarray(data, dtype=float)
+        n_windows = len(data) - self.window_size + 1
+        features = np.zeros((self.window_size, n_windows))
+
+        #Fill each column with the raw window data to be used for linear regresion
+        for i in range(n_windows):
+            features[:, i] = data[i:i + self.window_size]
+
+        #Add an optional bias to the features 
+        if self.use_bias:
+            features = np.vstack([features, np.ones(n_windows)])
+
+        return features

@@ -5,11 +5,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import qutip as qt
 import scipy
-from classes.RC import RC_TimeSeries
+from classes.RC import RCTimeSeries
 
 
 @dataclass(kw_only=True)
-class JJ(RC_TimeSeries):
+class JJ(RCTimeSeries):
     """Class to implement the Josephson Junction Reservoir Computing model."""
 
     virtual_nodes: int = 20
@@ -30,7 +30,7 @@ class JJ(RC_TimeSeries):
         if hasattr(super(), "__post_init__"):
             super().__post_init__()
 
-    def simulate_data(self, data, is_train: bool, save_dynamics: bool):
+    def simulate_data(self, data, is_train: bool, save_dynamics: bool = False):
         node_results = np.zeros((self.virtual_nodes, len(data)))
         phi = self.initial_phi
         V = self.initial_v

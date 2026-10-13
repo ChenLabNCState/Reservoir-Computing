@@ -7,9 +7,7 @@ import numpy as np
 import qutip as qt
 from dataclasses import dataclass, field, asdict
 from abc import ABC, abstractmethod
-from classes.RC import RC_TimeSeries,RC_Classification,RC
-
-from utilities.inversion import invert,reg_type
+from classes.RC import RCTimeSeries,RCClassification,RC
 
 @dataclass(kw_only=True)
 class QRC(RC):
@@ -45,6 +43,11 @@ class QRC(RC):
     #     #     super().__post_init__()
     
     
+    @property
+    def output_offset(self) -> int:
+        #Column i of simulate_data comes from window u[i : i+window_size], so its last input is u[i+window_size-1]
+        return self.window_size - 1
+
     def _simulate_window(self,window_data):
         state = self.initial_state
         dynamics = []
@@ -158,7 +161,7 @@ class QRC(RC):
 
 
 @dataclass(kw_only=True)
-class QRC_TimeSeries(RC_TimeSeries,QRC):
+class QRCTimeSeries(RCTimeSeries,QRC):
 
     def __post_init__(self):
   
@@ -166,12 +169,13 @@ class QRC_TimeSeries(RC_TimeSeries,QRC):
         if hasattr(super(), '__post_init__'):
             super().__post_init__()
 
+    #train, test and _align are inherited from RC / RCTimeSeries
 
-    #Returns results vector of dimension len(time_series) - window_size
+    #Returns results vector of dimension len(time_series) - window_size + 1 (one column per full window)
     def simulate_data(self,time_series,is_train:bool,plot_dynamics:bool = True) -> np.ndarray:
         features = []
 
-        for window_index in range(0,len(time_series)-(self.window_size)):
+        for window_index in range(0,len(time_series)-self.window_size+1):
             window = time_series[window_index:window_index + self.window_size]
             window_features = self._simulate_window(window)
             features.append(window_features)
@@ -180,74 +184,9 @@ class QRC_TimeSeries(RC_TimeSeries,QRC):
 
         return  results
 
-    def train(self,data:np.ndarray,
-                  targets = None,
-                  reg_type:reg_type = reg_type.PINV,
-                  save_dynamics:bool = False) -> np.ndarray:
-            """
-            Overarching method that will train the model with the data given and update the weight matrix
-            
-            """
-
-            #If no explicit targets are given, assume they are the shifted input data by the delay given 
-            if targets is None:
-                targets = data[self.delay + self.window_size:]
-            else:
-                targets = data
-    
-            #Exclude washout period in results
-            training_results = self.simulate_data(
-                data,
-                is_train=True,
-            )[:,self.washout:-self.delay]
-    
-            #Different inverse calculations
-            
-            inverse_train = invert(
-                data=training_results,
-                inv_type=reg_type
-            )
-    
-            self.W = targets @ inverse_train
-            
-            self.is_trained = True
-    
-            return self.W
-
-    def test(self, test_data, test_targets = None, open_loop: bool = True) -> tuple[np.ndarray, float]:
-        
-        if self.W is None or not self.is_trained:
-            raise ValueError("Weight matrix has yet to be calculated please run self.train() first")
-
-        #If no explicit test targets given just use the test data which we will 
-        if test_targets is None:
-            test_targets = test_data
-
-            self.test_targets = test_targets[self.delay + self.window_size:]
-        else:
-            self.test_targets = test_targets
-
-
-        if open_loop:
-            testing_results = self.simulate_data(test_data, is_train=False)[:, self.washout:-self.delay]
-            predictions = np.asarray(self.W @ testing_results)
-        else:
-            window = test_data[0:self.window_size + self.washout]
-            preds = []
-            for _ in range(len(test_data) - self.window_size):
-                testing_result = self.simulate_data(window, is_train=False)[:, self.washout:-self.delay]
-                prediction = self.W @ testing_result
-                preds.append(prediction)
-                window = np.append(window, prediction)[1:]   # np.append doesn't mutate in place
-            predictions = np.array(preds)
-
-        self.predictions = predictions
-        error = self._calc_nrmse(self.test_targets)
-        return predictions, error
-    
 
 @dataclass(kw_only=True)
-class QRC_Classification(RC_Classification,QRC):
+class QRCClassification(RCClassification,QRC):
     def __post_init__(self):
   
         # CRITICAL: Pass the execution to the next class in the chain!
@@ -255,7 +194,7 @@ class QRC_Classification(RC_Classification,QRC):
             super().__post_init__()
 
     
-    def simulate_data(self,time_series,is_train:bool,save_dynamics:bool):
+    def simulate_data(self,time_series,is_train:bool,save_dynamics:bool = False):
         all_probabilities = []
 
         for window_index in range(len(time_series) - self.window_size + 1):
@@ -268,60 +207,60 @@ class QRC_Classification(RC_Classification,QRC):
         return  results
 
 
-@dataclass(kw_only=True)
-class QRC_Classification_upgraded(QRC_Classification):
+# @dataclass(kw_only=True)
+# class QRCClassificationUpgraded(QRCClassification):
 
-    pulse_durations: np.ndarray
+#     pulse_durations: np.ndarray
 
-    def __post_init__(self):
+#     def __post_init__(self):
   
-        # CRITICAL: Pass the execution to the next class in the chain!
-        if hasattr(super(), '__post_init__'):
-            super().__post_init__()
+#         # CRITICAL: Pass the execution to the next class in the chain!
+#         if hasattr(super(), '__post_init__'):
+#             super().__post_init__()
         
-        # if self.pulse_durations.shape[1] != self.window_size or len(self.pulse_durations.shape) !=2:
-        #     raise ValueError(
-        #         f"pulse_durations must by a 2D numpy array with second index having dimension of window_size"
-        #         f"Window size is {self.window_size} and your dimension is {self.pulse_duration.shape[1]}"
-        #     )
+#         # if self.pulse_durations.shape[1] != self.window_size or len(self.pulse_durations.shape) !=2:
+#         #     raise ValueError(
+#         #         f"pulse_durations must by a 2D numpy array with second index having dimension of window_size"
+#         #         f"Window size is {self.window_size} and your dimension is {self.pulse_duration.shape[1]}"
+#         #     )
 
-    def _simulate_window(self, window_data,save_dynamics:bool):
-        features = []
-        state = self.initial_state
-        for j,pulse_duration_list in enumerate(self.pulse_durations):
-            for i,pulse_amp in enumerate(window_data):
+#     def _simulate_window(self, window_data,save_dynamics:bool):
+#         features = []
+#         state = self.initial_state
+#         for j,pulse_duration_list in enumerate(self.pulse_durations):
+#             for i,pulse_amp in enumerate(window_data):
 
-                tlist = np.linspace(0, pulse_duration_list[i], self.pulse_time_steps) 
+#                 tlist = np.linspace(0, pulse_duration_list[i], self.pulse_time_steps) 
 
-                """
-                This might need to be changed later to H_int + H_base when we 
-                have more than 1 qubit because the rotating frame for multiple qubits
-                will still have precession of other qubits
+#                 """
+#                 This might need to be changed later to H_int + H_base when we 
+#                 have more than 1 qubit because the rotating frame for multiple qubits
+#                 will still have precession of other qubits
                 
-                """
+#                 """
 
-                result = qt.mesolve(self.H_interaction*pulse_amp, state, tlist, self.collapse_ops)
-                if save_dynamics:
-                    self.dynamics_data.append([[qt.expect(op, state=state) for op in self.measurement_ops] for state in result.states])
-                state = result.states[-1]
+#                 result = qt.mesolve(self.H_interaction*pulse_amp, state, tlist, self.collapse_ops)
+#                 if save_dynamics:
+#                     self.dynamics_data.append([[qt.expect(op, state=state) for op in self.measurement_ops] for state in result.states])
+#                 state = result.states[-1]
         
 
-            # Process state through the normalization function. Is valid will be False if the norm is smaller than the threshold
-            #******CRITICAL****:  Currently this only works with reservoirs that are not tensor products of multiple qubits
-            # if self.subspace_dim < self.N:
-            #     state, is_valid = self._normalize_subspace(state)
+#             # Process state through the normalization function. Is valid will be False if the norm is smaller than the threshold
+#             #******CRITICAL****:  Currently this only works with reservoirs that are not tensor products of multiple qubits
+#             # if self.subspace_dim < self.N:
+#             #     state, is_valid = self._normalize_subspace(state)
 
-            #     #Assuming norm is large enough calculate expectation values, otherwise just 
-            #     if is_valid:
-            #         features.append(np.array([qt.expect(op, state=state) for op in self.measurement_ops]))
-            #     else:
-            #         features.append(np.zeros(len(self.measurement_ops)))
-            # else:
-            features.append(np.array([qt.expect(op, state=state) for op in self.measurement_ops]))
+#             #     #Assuming norm is large enough calculate expectation values, otherwise just 
+#             #     if is_valid:
+#             #         features.append(np.array([qt.expect(op, state=state) for op in self.measurement_ops]))
+#             #     else:
+#             #         features.append(np.zeros(len(self.measurement_ops)))
+#             # else:
+#             features.append(np.array([qt.expect(op, state=state) for op in self.measurement_ops]))
         
-        features = np.asarray(features).ravel()
+#         features = np.asarray(features).ravel()
 
-        return features
+#         return features
             
 def normalize_subspace(state: qt.Qobj,subspace_dim:int,subspace_start_index:int,threshold = 1e-12) -> tuple[qt.Qobj, bool]:
         

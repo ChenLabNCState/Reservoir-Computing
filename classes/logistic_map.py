@@ -1,6 +1,6 @@
 import numpy as np
 from dataclasses import dataclass, field
-from classes.RC import RC_TimeSeries
+from classes.RC import RCTimeSeries
  
  
 # ── Piecewise linear saturation  S(y) ────────────────────────────────────────
@@ -23,7 +23,7 @@ def driven_logistic_step(x: float, u: float, rho: float, i_inj: float) -> float:
  
 # ── RC subclass ───────────────────────────────────────────────────────────────
 @dataclass(kw_only=True)
-class LogisticMapRC(RC_TimeSeries):
+class LogisticMapRC(RCTimeSeries):
     """
     Reservoir computer using the driven logistic map from:
       Appeltant et al., Scientific Reports 2, 514 (2012)

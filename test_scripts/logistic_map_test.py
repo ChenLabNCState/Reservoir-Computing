@@ -16,7 +16,7 @@ from matplotlib.colorbar import ColorbarBase
  
 # ── Make sure your classes/ folder is importable ──────────────────────────────
 sys.path.insert(0, ".")
-from classes.RC import RC_TimeSeries
+from classes.RC import RCTimeSeries
 from classes.logistic_map import LogisticMapRC
  
  

@@ -7,16 +7,16 @@ import numpy as np
 from enum import Enum
 
 
-class reg_type(Enum):
+class RegType(Enum):
     PINV = 1
     RIDGE = 2
 
-def invert(data,inv_type:reg_type = reg_type.PINV,ridge:float = 1e-3):
+def invert(data,inv_type:RegType = RegType.PINV,ridge:float = 1e-3):
     match inv_type:
-        case reg_type.PINV:
+        case RegType.PINV:
             inverse_train = np.linalg.pinv(data)
 
-        case reg_type.RIDGE:
+        case RegType.RIDGE:
             inverse_train = np.linalg.inv(data.T @ data 
                                         + ridge * np.eye(data.shape[1]) ) @ data.T
 
