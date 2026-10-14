@@ -60,7 +60,7 @@ class QRC(RC):
             will still have precession of other qubits
             
             """
-            result = qt.mesolve(self.H_interaction*pulse_amp, state, tlist, self.collapse_ops)
+            result = qt.mesolve(self.H_base +self.H_interaction*pulse_amp, state, tlist, self.collapse_ops)
             state = result.states[-1]
             dynamics.append(result)
         
