@@ -252,6 +252,7 @@ class RC(ABC):
         u = rng.uniform(-1.0, 1.0, size=data_size)
 
         #Simulate raw data into reservoir
+        print(f"Simulating {data_size} data points into the reservoir...")
         raw = self.simulate_data(u, is_train=False)
 
 
@@ -261,7 +262,7 @@ class RC(ABC):
 
         # Adaptive noise floor threshold — scales with K/T_eff
         noise_floor = K / T_eff
-        effective_threshold = max(threshold, 3.0 * noise_floor)
+        effective_threshold = max(threshold, 3 * noise_floor)
 
         # Input index of the last sample seen by the first post-washout output
         start = self.output_offset + self.washout
@@ -272,8 +273,11 @@ class RC(ABC):
         max_delay = tau_max
         targets, degree_groups = [], []
 
+        #Structure is [capacities], max_capacity,  total_num_capacities, num_successful_capacities
+        capacity_dict = {D: [[], 0.0,0,0] for D in range(1, d_max + 1)}
         for D in range(1, d_max + 1):
-            print(f"Calculating Capacity for degree {D}")
+            num_capacities = 0
+            print(f"Calculating target functions for degree {D}")
             for n_poly in range(1, D + 1):
                 # Ordered degree assignments summing to D
                 deg_permutations = list(find_permutations(n_poly, D))
@@ -288,6 +292,8 @@ class RC(ABC):
                             z *= eval_legendre_norm(d, u_lag)
                         targets.append(z)
                         degree_groups.append(D)
+                        num_capacities += 1
+            capacity_dict[D][2] = num_capacities
 
         Z = np.column_stack(targets)  # (T_eff, N)
 
@@ -296,7 +302,7 @@ class RC(ABC):
         W_opt = invert(X) @ Z  # (K, N)
         Z_hat = X @ W_opt      # (T_eff, N)
 
-        capacity_array = np.zeros(d_max)
+        
         for i, D in enumerate(degree_groups):
             var_z = np.var(targets[i])
             if var_z == 0:
@@ -304,35 +310,73 @@ class RC(ABC):
             mse = np.mean((Z_hat[:, i] - targets[i]) ** 2)
             c_i = max(0.0, 1.0 - mse / var_z)
             if c_i >= effective_threshold:
-                capacity_array[D - 1] += c_i
+                #Count the number of successful capacites for each degree
+                capacity_dict[D][3] += 1
+                capacity_dict[D][0].append(c_i)
 
-        return float(np.sum(capacity_array)), capacity_array
+        total_cap = 0
+        for (key,value) in capacity_dict.items():
+            print(f"Calculating capacities for degree {key}")
+            value[1] = max(value[0],default=0.0)
+            total_cap += np.sum(value[0])
+        
+
+        return float(total_cap), capacity_dict
     
 
 #Helper functions
-def plot_ipc_by_degree(capacities_list, total_capacity:float, figsize=(10, 4.5), save_path=None):
+def plot_ipc_by_degree(capacity_dict, 
+                       total_capacity:float=None, 
+                       figsize=(10, 4.5), 
+                       save_path=None):
     """
     Plots IPC breakdown grouped by degree D = sum(degrees), showing absolute capacity
     and fractional contribution per degree similar to Dambre et al. (2012).
-    
+    A second figure shows the average capacity per successful target function and the max
+    capacity of any single target function for each degree, along with the fraction of
+    target functions that passed the threshold.
+
     Parameters:
-        capacities_dict (dict): Dictionary mapping ((deg1, deg2, ...), (tau1, tau2, ...)) -> C_i
+        capacity_dict (dict): Dictionary from RC.ipc mapping
+                              D -> ([C_i, ...], max C_i, total_num_capacities, num_successful_capacities).
         total_capacity (float, optional): Sum of all capacities. Calculated if None.
         figsize (tuple): Dimensions of the figure.
-        save_path (str, optional): File path to save the plot.
+        save_path (str, optional): File path to save the plot. The per-target figure
+                                   is saved with a "_per_target" suffix.
     """
 
+    # 1. Sum, average, and max of individual capacities within each degree D
+    degrees = sorted(capacity_dict.keys())
+    capacities_list, avg_list, max_list, num_total_list, num_success_list = [], [], [], [], []
+    for D in degrees:
+        caps, max_cap, num_total, num_success = capacity_dict[D]
+        capacities_list.append(float(np.sum(caps)))
+        # Average over the successful capacities (those above threshold)
+        avg_list.append(float(np.sum(caps)) / num_success if num_success > 0 else 0.0)
+        max_list.append(float(max_cap))
+        num_total_list.append(num_total)
+        num_success_list.append(num_success)
+    capacities_list = np.array(capacities_list)
+    avg_list = np.array(avg_list)
+    max_list = np.array(max_list)
+    num_total_list = np.array(num_total_list)
+    num_success_list = np.array(num_success_list)
+    kept_pct = np.divide(100.0 * num_success_list, num_total_list,
+                         out=np.zeros(len(degrees)), where=num_total_list > 0)
 
-    # 2. Calculate fractional capacities per degree
+    # 2. Fraction of total capacity per degree
+    if total_capacity is None:
+        total_capacity = float(np.sum(capacities_list))
     fractions = capacities_list / total_capacity if total_capacity > 0 else np.zeros_like(capacities_list)
+    labels = [f"Deg {D}" for D in degrees]
 
     # 3. Create two-panel plot (Absolute & Fractional)
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
 
-    colors = plt.cm.viridis(np.linspace(0.2, 0.8, len(capacities_list)))
+    colors = plt.cm.viridis(np.linspace(0.2, 0.8, len(degrees)))
 
     # Panel 1: Absolute Capacity per Degree (C_D)
-    bars1 = ax1.bar([f"Deg {d}" for d in range(1,len(capacities_list)+1)], capacities_list, color=colors, edgecolor="black", alpha=0.85)
+    bars1 = ax1.bar(labels, capacities_list, color=colors, edgecolor="black", alpha=0.85)
     ax1.set_ylabel("Absolute Capacity $C_D$", fontsize=11)
     ax1.set_title("Capacity per Degree $D$", fontsize=12, fontweight="bold")
     ax1.grid(axis="y", linestyle="--", alpha=0.5)
@@ -344,7 +388,7 @@ def plot_ipc_by_degree(capacities_list, total_capacity:float, figsize=(10, 4.5),
                  f"{yval:.3f}", ha="center", va="bottom", fontsize=9)
 
     # Panel 2: Fraction of Total Capacity (C_D / C_total)
-    bars2 = ax2.bar([f"Deg {d}" for d in range(1,len(capacities_list)+1)], fractions * 100, color=colors, edgecolor="black", alpha=0.85)
+    bars2 = ax2.bar(labels, fractions * 100, color=colors, edgecolor="black", alpha=0.85)
     ax2.set_ylabel("Fraction of Total Capacity (%)", fontsize=11)
     ax2.set_title(f"Degree Contribution ($C_{{total}} = {total_capacity:.2f}$)", fontsize=12, fontweight="bold")
     ax2.set_ylim(0, 105)
@@ -361,7 +405,43 @@ def plot_ipc_by_degree(capacities_list, total_capacity:float, figsize=(10, 4.5),
     if save_path:
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
 
-    plt.show()
+    # 4. Separate plot: average capacity per successful target vs. max single-target capacity
+    def compact(n):
+        """Shorten large counts, e.g. 177100 -> 177.1k."""
+        return f"{n/1e6:.1f}M" if n >= 1e6 else f"{n/1e3:.1f}k" if n >= 1e4 else f"{n}"
+
+    fig2, ax3 = plt.subplots(figsize=(max(figsize[0], 1.6 * len(degrees)), figsize[1] + 0.5))
+    x = np.arange(len(degrees))
+    width = 0.38
+
+    bars_avg = ax3.bar(x - width/2, avg_list, width, label="Average per successful target", color=colors, edgecolor="black", alpha=0.85)
+    bars_max = ax3.bar(x + width/2, max_list, width, label="Max single target", color=colors, edgecolor="black", alpha=0.85, hatch="//")
+    ax3.set_xticks(x)
+    # Tick labels show successful / total target functions and percentage kept per degree
+    ax3.set_xticklabels([f"Deg {D}\n{compact(s)} / {compact(n)}\n{p:.1f}% kept"
+                         for D, s, n, p in zip(degrees, num_success_list, num_total_list, kept_pct)],
+                        fontsize=9, linespacing=1.4)
+    ax3.set_xlabel("Successful / total target functions", fontsize=10, labelpad=8)
+    ax3.set_ylabel("Capacity $C_i$", fontsize=11)
+    ax3.set_title("Per-Target Capacity per Degree $D$", fontsize=12, fontweight="bold", pad=30)
+    # Scale y-axis to the data (capped at 1) so small capacities stay readable
+    y_top = max(float(np.max(max_list, initial=0.0)), 1e-3)
+    ax3.set_ylim(0, min(1.1, 1.3 * y_top))
+    ax3.grid(axis="y", linestyle="--", alpha=0.5)
+    ax3.legend(fontsize=9, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=2, frameon=False)
+
+    # Add numeric labels on top of per-target bars
+    for bar in list(bars_avg) + list(bars_max):
+        yval = bar.get_height()
+        ax3.text(bar.get_x() + bar.get_width()/2.0, yval + 0.01 * y_top,
+                 f"{yval:.3f}", ha="center", va="bottom", fontsize=7.5)
+
+    plt.tight_layout()
+
+    if save_path:
+        root, ext = os.path.splitext(save_path)
+        fig2.savefig(f"{root}_per_target{ext}", dpi=300, bbox_inches="tight")
+
 
 
 

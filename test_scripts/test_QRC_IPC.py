@@ -163,7 +163,7 @@ def custom_dissipator(N, destroy_index):
 
 
 
-def create_qubit(delay=1,washout=0,window_size = 20,kappa=2.7,pulse_duration =.1, pulse_time_steps = 100):
+def create_qubit(delay=1,washout=0,window_size = 20,kappa=2.7,pulse_duration =.1, pulse_time_steps = 1):
     N = 2
     initial_state = qt.basis(2,0)
     measurement_ops = [qt.sigmaz(),qt.sigmay()]
@@ -222,6 +222,78 @@ def create_fock(N=10,Subspace_dim = 8,delay=1,washout=0,window_size = 20,kappa=2
         )
 
     return QRC_fock
+
+
+def create_multiqubit(coupling_matrix, 
+                      decay_list,
+                      delay=1, 
+                      washout=0, 
+                      window_size=20, 
+                      h=0.5, 
+                      pulse_duration=.1, 
+                      pulse_time_steps=1,
+                      correlators=True, 
+                      input_scaling=1):
+
+
+    def op_at(op, i, n):
+        """Embed a single-qubit op at site i of an n-qubit register."""
+        ops = [qt.qeye(2)] * n
+        ops[i] = op
+        return qt.tensor(ops)
+
+    
+    J = np.asarray(coupling_matrix, dtype=float)
+    kappa_list = np.asarray(decay_list)
+
+    if len(kappa_list)!= J.shape[0]:
+        raise ValueError(f"decay_list needs elements equal to number of qubits present")
+
+    if J.ndim != 2 or J.shape[0] != J.shape[1]:
+        raise ValueError(f"coupling_matrix must be square, got shape {J.shape}")
+    if not np.allclose(J, J.T):
+        raise ValueError("coupling_matrix must be symmetric (J[i][j] == J[j][i])")
+    n = J.shape[0]
+
+    X = [op_at(qt.sigmax(), i, n) for i in range(n)]
+    Y = [op_at(qt.sigmay(), i, n) for i in range(n)]
+    Z = [op_at(qt.sigmaz(), i, n) for i in range(n)]
+    a = [op_at(qt.destroy(2), i, n) for i in range(n)]   # same lowering convention as create_qubit
+
+    # Exchange coupling on the upper triangle: no self-coupling, each edge counted once
+    edges = list(zip(*np.nonzero(np.triu(J, 1))))
+    H_base = qt.qzero([2] * n)          # qutip 4: 0 * qt.tensor([qt.qeye(2)] * n)
+    for i, j in edges:
+        H_base += J[i, j] * (X[i] * X[j])
+    H_base += h * sum(Z)
+
+    # Input drive assumed to only drive the first qubit
+    H_int = input_scaling * X[0]
+
+    c_ops = [np.sqrt(kappa_list[i]) * a[i] for i in range(n)]
+
+    # Features: local <X_i>,<Y_i>,<Z_i> plus optional <Z_i Z_j> on coupled pairs
+    measurement_ops = X + Y + Z
+    if correlators:
+        measurement_ops += [Z[i] * Z[j] for i, j in edges]
+
+    initial_state = qt.tensor([qt.basis(2, 0)] * n)
+
+    return QRCTimeSeries(
+        H_base=H_base,
+        N=2**n,
+        collapse_ops=c_ops,
+        H_interaction=H_int,
+        measurement_ops=measurement_ops,
+        initial_state=initial_state,
+        washout=washout,
+        window_size=window_size,
+        delay=delay,
+        pulse_duration=pulse_duration,
+        pulse_time_steps=pulse_time_steps,
+    )
+
+
 
 def test_qubit(data,delay=1,kappa:float = 2.7):
     
@@ -310,25 +382,58 @@ def run_delay_sweep(delay_min,delay_max,step=5,kappa = 2.7):
 
 # test_dynamics(delay=1,kappa=.5)
 
-qubit = create_qubit(washout=50)
-fock = create_fock(washout = 50)
+qubit = create_qubit(washout=100)
+fock = create_fock(washout = 100)
+chain = create_multiqubit(
+    coupling_matrix=[[0, 1, 0,0,0], [1, 0, 1,0,0], [0, 1, 0,1,0], [0, 0, 1, 0, 1], [0, 0, 0, 1, 0]],
+    decay_list=[2.7, 2.7, 2.7,2.7,2.7],
+    washout=100,
+)
+star = create_multiqubit(
+    coupling_matrix=[[0, 1, 1,1,1], [1, 0, 1,1,1], [1, 1, 0,1,1], [1, 1, 1, 0, 1], [1, 1, 1, 1, 0]],
+    decay_list=[2.7, 2.7, 2.7,2.7,2.7],
+    washout=100,
+)
 
-total_C, cap_list = qubit.evaluate_IPC(
-        data_size=5000,
-        d_max=6,
-        tau_max=20,
+
+total_C, cap_dict = qubit.evaluate_IPC(
+        data_size=20000,
+        d_max=5,
+        tau_max=40,
         threshold=0,
-    )
+)
 
-    # Render the plots
-plot_ipc_by_degree(cap_list, total_capacity=total_C, save_path=f"qubit_capacities.png")
 
-total_C, cap_list = fock.evaluate_IPC(
-        data_size=5000,
-        d_max=6,
-        tau_max=20,
+chain_C, cap_dict_chain = chain.evaluate_IPC(
+        data_size=20000,
+        d_max=5,
+        tau_max=40,
         threshold=0,
-    )
+)
 
-plot_ipc_by_degree(cap_list, total_capacity=total_C, save_path=f"fock_capacities.png")
+
+
+star_C, cap_dict_star = star.evaluate_IPC(
+        data_size=20000,
+        d_max=5,
+        tau_max=40,
+        threshold=0,
+)
+plot_ipc_by_degree(cap_dict, total_capacity=total_C, save_path=f"qubit_capacities.png")
+
+plot_ipc_by_degree(cap_dict_star, total_capacity=star_C, save_path=f"star_capacities.png")
+
+plot_ipc_by_degree(cap_dict_chain, total_capacity=chain_C, save_path=f"chain_capacities.png")
+
+
+# fock_total_C, fock_cap_dict = fock.evaluate_IPC(
+#         data_size=5000,
+#         d_max=6,
+#         tau_max=20,
+#         threshold=0,
+#     )
+
+#plot_ipc_by_degree(fock_cap_dict, total_capacity=fock_total_C, save_path=f"fock_capacities.png")
 # fock.evaluate_IPC()
+
+
