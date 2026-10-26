@@ -1,7 +1,8 @@
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
+import matplotlib
+matplotlib.use("Agg")
 
 
 import qutip as qt
@@ -231,7 +232,7 @@ def create_multiqubit(coupling_matrix,
                       window_size=20, 
                       h=0.5, 
                       pulse_duration=.1, 
-                      pulse_time_steps=1,
+                      pulse_time_steps=2,
                       correlators=True, 
                       input_scaling=1):
 
@@ -386,40 +387,40 @@ qubit = create_qubit(washout=100)
 fock = create_fock(washout = 100)
 chain = create_multiqubit(
     coupling_matrix=[[0, 1, 0,0,0], [1, 0, 1,0,0], [0, 1, 0,1,0], [0, 0, 1, 0, 1], [0, 0, 0, 1, 0]],
-    decay_list=[2.7, 2.7, 2.7,2.7,2.7],
+    decay_list= 2.7*np.exp([-i for i in range(0,5)]),
     washout=100,
 )
 star = create_multiqubit(
     coupling_matrix=[[0, 1, 1,1,1], [1, 0, 1,1,1], [1, 1, 0,1,1], [1, 1, 1, 0, 1], [1, 1, 1, 1, 0]],
-    decay_list=[2.7, 2.7, 2.7,2.7,2.7],
+    decay_list=2.7*np.exp([-i for i in range(0,5)]),
     washout=100,
 )
 
 
-total_C, cap_dict = qubit.evaluate_IPC(
-        data_size=20000,
-        d_max=5,
-        tau_max=40,
-        threshold=0,
-)
+# total_C, cap_dict = qubit.evaluate_IPC(
+#         data_size=20000,
+#         d_max=4,
+#         tau_max=20,
+#         threshold=0,
+# )
 
 
 chain_C, cap_dict_chain = chain.evaluate_IPC(
-        data_size=20000,
+        data_size=5000,
         d_max=5,
-        tau_max=40,
+        tau_max=20,
         threshold=0,
 )
 
 
 
 star_C, cap_dict_star = star.evaluate_IPC(
-        data_size=20000,
+        data_size=5000,
         d_max=5,
-        tau_max=40,
+        tau_max=20,
         threshold=0,
 )
-plot_ipc_by_degree(cap_dict, total_capacity=total_C, save_path=f"qubit_capacities.png")
+# plot_ipc_by_degree(cap_dict, total_capacity=total_C, save_path=f"qubit_capacities.png")
 
 plot_ipc_by_degree(cap_dict_star, total_capacity=star_C, save_path=f"star_capacities.png")
 

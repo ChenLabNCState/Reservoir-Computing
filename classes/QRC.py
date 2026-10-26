@@ -77,8 +77,8 @@ class QRC(RC):
         #         features = np.zeros(len(self.measurement_ops))
         # else:
 
-        #Calculate features (expected values of operators)
-        features= np.array([qt.expect(op, state=state) for op in self.measurement_ops])
+        #Calculate features (expected values of operators) and add an offset bias
+        features= np.array([1]+ [qt.expect(op, state=state) for op in self.measurement_ops])
         
         return features
 

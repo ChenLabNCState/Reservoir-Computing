@@ -230,7 +230,7 @@ class RC(ABC):
                     data_size: int = 5000, 
                     d_max: int = 4,
                     tau_max: int = 10,
-                    threshold: float = 1e-3) -> tuple[float, np.ndarray]:
+                    threshold: float = 1e-3) -> tuple[float, dict]:
 
         def find_permutations(n, target, current_path=None):
             """Ordered compositions of target into n positive integers."""
@@ -326,7 +326,7 @@ class RC(ABC):
 
 #Helper functions
 def plot_ipc_by_degree(capacity_dict, 
-                       total_capacity:float=None, 
+                       total_capacity:float=0.0, 
                        figsize=(10, 4.5), 
                        save_path=None):
     """
@@ -365,7 +365,7 @@ def plot_ipc_by_degree(capacity_dict,
                          out=np.zeros(len(degrees)), where=num_total_list > 0)
 
     # 2. Fraction of total capacity per degree
-    if total_capacity is None:
+    if total_capacity is 0.0:
         total_capacity = float(np.sum(capacities_list))
     fractions = capacities_list / total_capacity if total_capacity > 0 else np.zeros_like(capacities_list)
     labels = [f"Deg {D}" for D in degrees]
